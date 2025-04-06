@@ -1,0 +1,224 @@
+from datamodel import OrderDepth, UserId, TradingState, Order
+from typing import List, Dict
+import statistics
+
+class Trader:
+    def __init__(self):
+        # Initialize trader state
+        self.resin_fair_value = 10000  # Initial guess for Rainforest Resin
+        self.recent_kelp_prices = []   # Store recent kelp prices to detect trends
+        self.kelp_moving_avg_short = None  # Short-term moving average
+        self.kelp_moving_avg_long = None   # Long-term moving average
+        
+    def run(self, state: TradingState):
+        print("traderData: " + state.traderData)
+        print("Observations: " + str(state.observations))
+        
+        # Initialize the result dict with empty lists for all products
+        result = {product: [] for product in state.order_depths.keys()}
+        
+        # Handle each product separately
+        for product in state.order_depths:
+            if product == 'RAINFOREST_RESIN':
+                result[product] = self.trade_resin(product, state)
+            elif product == 'KELP':
+                result[product] = self.trade_kelp(product, state)
+        
+        # Serialize our state
+        kelp_prices_str = ",".join([str(price) for price in self.recent_kelp_prices])
+        trader_data = f"{self.resin_fair_value}|{kelp_prices_str}"
+        
+        # We're not using conversions in the tutorial
+        conversions = 0
+        
+        return result, conversions, trader_data
+    
+    def trade_resin(self, product: str, state: TradingState) -> List[Order]:
+        """Market making strategy for Rainforest Resin"""
+        order_depth: OrderDepth = state.order_depths[product]
+        orders: List[Order] = []
+        position = state.position.get(product, 0)
+        position_limit = 50
+        
+        # Reconstruct our state if available
+        if state.traderData and "|" in state.traderData:
+            parts = state.traderData.split("|")
+            if len(parts) > 0:
+                try:
+                    self.resin_fair_value = float(parts[0])
+                except:
+                    pass
+        
+        # Calculate fair value based on the mid-price of the order book
+        if order_depth.sell_orders and order_depth.buy_orders:
+            best_ask = min(order_depth.sell_orders.keys())
+            best_bid = max(order_depth.buy_orders.keys())
+            self.resin_fair_value = (best_ask + best_bid) / 2
+        
+        # Get the best bid and ask available
+        if order_depth.sell_orders:
+            best_ask, best_ask_amount = min(order_depth.sell_orders.items())
+            best_ask_amount = -best_ask_amount  # Convert to positive
+        else:
+            best_ask, best_ask_amount = float('inf'), 0
+            
+        if order_depth.buy_orders:
+            best_bid, best_bid_amount = max(order_depth.buy_orders.items())
+        else:
+            best_bid, best_bid_amount = 0, 0
+            
+        # Market making logic - buy low, sell high
+        # Calculate acceptable prices with a margin
+        margin = 1  # Adjust based on market conditions
+        buy_price = self.resin_fair_value - margin
+        sell_price = self.resin_fair_value + margin
+        
+        # Adjust based on our current position
+        position_factor = 0.2 * (position / position_limit)
+        buy_price -= position_factor * margin
+        sell_price += position_factor * margin
+        
+        # Limit orders to maintain position limits
+        buy_capacity = position_limit - position
+        sell_capacity = position_limit + position  # For short positions
+        
+        # Place buy order if the best ask is below our buy price
+        if best_ask < buy_price and buy_capacity > 0:
+            buy_volume = min(best_ask_amount, buy_capacity)
+            if buy_volume > 0:
+                orders.append(Order(product, best_ask, buy_volume))
+                print(f"BUY {product}: {buy_volume}x at {best_ask}")
+        
+        # Place sell order if the best bid is above our sell price
+        if best_bid > sell_price and sell_capacity > 0:
+            sell_volume = min(best_bid_amount, sell_capacity)
+            if sell_volume > 0:
+                orders.append(Order(product, best_bid, -sell_volume))
+                print(f"SELL {product}: {sell_volume}x at {best_bid}")
+                
+        # Optional: place limit orders at our prices
+        if buy_capacity > 10:
+            orders.append(Order(product, int(buy_price), 10))
+            print(f"LIMIT BUY {product}: 10x at {int(buy_price)}")
+            
+        if sell_capacity > 10:
+            orders.append(Order(product, int(sell_price), -10))
+            print(f"LIMIT SELL {product}: 10x at {int(sell_price)}")
+        
+        return orders
+    
+def trade_kelp(self, product: str, state: TradingState) -> List[Order]:
+    """Enhanced strategy for Kelp with regime detection and hybrid approach"""
+    order_depth: OrderDepth = state.order_depths[product]
+    orders: List[Order] = []
+    position = state.position.get(product, 0)
+    position_limit = 50
+    
+    # Update price history
+    if order_depth.sell_orders and order_depth.buy_orders:
+        best_ask = min(order_depth.sell_orders.keys())
+        best_bid = max(order_depth.buy_orders.keys())
+        mid_price = (best_ask + best_bid) / 2
+        self.recent_kelp_prices.append(mid_price)
+        self.recent_kelp_prices = self.recent_kelp_prices[-50:]  # Keep more history
+    
+    # Calculate indicators for regime detection
+    if len(self.recent_kelp_prices) >= 30:
+        # Calculate multiple moving averages
+        ma5 = statistics.mean(self.recent_kelp_prices[-5:])
+        ma15 = statistics.mean(self.recent_kelp_prices[-15:])
+        ma20 = statistics.mean(self.recent_kelp_prices[-20:])
+        ma30 = statistics.mean(self.recent_kelp_prices[-30:])
+        
+        # Calculate volatility for position sizing
+        recent_volatility = statistics.stdev(self.recent_kelp_prices[-15:])
+        normalized_volatility = min(1.0, recent_volatility / 10)  # Scale volatility
+        
+        # Calculate Bollinger Bands for mean reversion
+        std_dev = statistics.stdev(self.recent_kelp_prices[-20:])
+        upper_band = ma20 + (2 * std_dev)
+        lower_band = ma20 - (2 * std_dev)
+        
+        # Detect market regime (trending vs ranging)
+        price_range = max(self.recent_kelp_prices[-15:]) - min(self.recent_kelp_prices[-15:])
+        is_trending = abs(ma5 - ma30) > (price_range * 0.2)
+        
+        # Current price relative to recent range
+        current_price = self.recent_kelp_prices[-1]
+        
+        # Order book analysis
+        bid_volume = sum(order_depth.buy_orders.values())
+        ask_volume = -sum(order_depth.sell_orders.values())
+        book_imbalance = bid_volume / (bid_volume + ask_volume) if (bid_volume + ask_volume) > 0 else 0.5
+        
+        # Trade based on detected regime
+        if is_trending:
+            # Trend-following strategy (enhanced)
+            trend_direction = 1 if ma5 > ma15 > ma30 else (-1 if ma5 < ma15 < ma30 else 0)
+            
+            if trend_direction > 0 and position < position_limit * 0.8:
+                # Strong uptrend detected
+                trade_size = max(1, int((position_limit - position) * 0.3 * (1 - normalized_volatility)))
+                if order_depth.sell_orders:
+                    best_ask, best_ask_amount = min(order_depth.sell_orders.items())
+                    best_ask_amount = -best_ask_amount
+                    trade_size = min(trade_size, best_ask_amount)
+                    if trade_size > 0:
+                        orders.append(Order(product, best_ask, trade_size))
+                        print(f"TREND BUY {product}: {trade_size}x at {best_ask}")
+            
+            elif trend_direction < 0 and position > -position_limit * 0.8:
+                # Strong downtrend detected
+                trade_size = max(1, int((position_limit + position) * 0.3 * (1 - normalized_volatility)))
+                if order_depth.buy_orders:
+                    best_bid, best_bid_amount = max(order_depth.buy_orders.items())
+                    trade_size = min(trade_size, best_bid_amount)
+                    if trade_size > 0:
+                        orders.append(Order(product, best_bid, -trade_size))
+                        print(f"TREND SELL {product}: {trade_size}x at {best_bid}")
+        else:
+            # Mean-reversion strategy for ranging markets
+            if current_price > upper_band and position > -position_limit * 0.8:
+                # Overbought condition - sell
+                trade_size = max(1, int((position_limit + position) * 0.25))
+                if order_depth.buy_orders:
+                    best_bid, best_bid_amount = max(order_depth.buy_orders.items())
+                    trade_size = min(trade_size, best_bid_amount)
+                    if trade_size > 0:
+                        orders.append(Order(product, best_bid, -trade_size))
+                        print(f"MEAN_REVERSION SELL {product}: {trade_size}x at {best_bid}")
+            
+            elif current_price < lower_band and position < position_limit * 0.8:
+                # Oversold condition - buy
+                trade_size = max(1, int((position_limit - position) * 0.25))
+                if order_depth.sell_orders:
+                    best_ask, best_ask_amount = min(order_depth.sell_orders.items())
+                    best_ask_amount = -best_ask_amount
+                    trade_size = min(trade_size, best_ask_amount)
+                    if trade_size > 0:
+                        orders.append(Order(product, best_ask, trade_size))
+                        print(f"MEAN_REVERSION BUY {product}: {trade_size}x at {best_ask}")
+        
+        # Order book imbalance trading (opportunistic)
+        if book_imbalance > 0.7 and position < position_limit * 0.9:
+            # Heavy buying pressure detected - join the buyers
+            trade_size = max(1, int((position_limit - position) * 0.15))
+            if order_depth.sell_orders:
+                best_ask, best_ask_amount = min(order_depth.sell_orders.items())
+                best_ask_amount = -best_ask_amount
+                trade_size = min(trade_size, best_ask_amount)
+                if trade_size > 0:
+                    orders.append(Order(product, best_ask, trade_size))
+                    print(f"IMBALANCE BUY {product}: {trade_size}x at {best_ask}")
+        
+        elif book_imbalance < 0.3 and position > -position_limit * 0.9:
+            # Heavy selling pressure detected - join the sellers
+            trade_size = max(1, int((position_limit + position) * 0.15))
+            if order_depth.buy_orders:
+                best_bid, best_bid_amount = max(order_depth.buy_orders.items())
+                trade_size = min(trade_size, best_bid_amount)
+                if trade_size > 0:
+                    orders.append(Order(product, best_bid, -trade_size))
+                    print(f"IMBALANCE SELL {product}: {trade_size}x at {best_bid}")
+    
+    return orders
