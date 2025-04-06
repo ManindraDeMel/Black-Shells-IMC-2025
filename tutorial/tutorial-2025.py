@@ -1,10 +1,13 @@
 from datamodel import OrderDepth, UserId, TradingState, Order
 from typing import List, Dict
+import json
 
 class Trader:
     def __init__(self):
         # Initialize trader state
         self.resin_fair_value = 10000  # Initial guess for Rainforest Resin
+        self.recent_trades = []  # Store recent trade prices
+        self.max_trades_to_track = 10  # Number of recent trades to use for fair value calculation
         
     def run(self, state: TradingState):
         print("traderData: " + state.traderData)
@@ -21,8 +24,11 @@ class Trader:
                 # Skip other products (including KELP)
                 result[product] = []
         
-        # Serialize our state - only tracking resin fair value now
-        trader_data = f"{self.resin_fair_value}"
+        # Serialize our state - tracking resin fair value and recent trades
+        trader_data = json.dumps({
+            "resin_fair_value": self.resin_fair_value,
+            "recent_trades": self.recent_trades
+        })
         
         # We're not using conversions in the tutorial
         conversions = 0
@@ -30,7 +36,7 @@ class Trader:
         return result, conversions, trader_data
     
     def trade_resin(self, product: str, state: TradingState) -> List[Order]:
-        """Market making strategy for Rainforest Resin"""
+        """Market making strategy for Rainforest Resin based on recent trades"""
         order_depth: OrderDepth = state.order_depths[product]
         orders: List[Order] = []
         position = state.position.get(product, 0)
@@ -39,15 +45,34 @@ class Trader:
         # Reconstruct our state if available
         if state.traderData:
             try:
-                self.resin_fair_value = float(state.traderData)
+                data = json.loads(state.traderData)
+                self.resin_fair_value = data.get("resin_fair_value", 10000)
+                self.recent_trades = data.get("recent_trades", [])
             except:
                 pass
         
-        # Calculate fair value based on the mid-price of the order book
-        if order_depth.sell_orders and order_depth.buy_orders:
+        # Update recent trades list with new market trades and our own trades
+        if product in state.market_trades:
+            for trade in state.market_trades[product]:
+                self.recent_trades.append(trade.price)
+        
+        if product in state.own_trades:
+            for trade in state.own_trades[product]:
+                self.recent_trades.append(trade.price)
+        
+        # Keep only the most recent trades
+        self.recent_trades = self.recent_trades[-self.max_trades_to_track:]
+        
+        # Calculate fair value based on recent trades if we have enough data
+        if len(self.recent_trades) > 0:
+            self.resin_fair_value = sum(self.recent_trades) / len(self.recent_trades)
+            print(f"Updated fair value based on {len(self.recent_trades)} recent trades: {self.resin_fair_value}")
+        # Fallback to mid-price if no trade data is available
+        elif order_depth.sell_orders and order_depth.buy_orders:
             best_ask = min(order_depth.sell_orders.keys())
             best_bid = max(order_depth.buy_orders.keys())
             self.resin_fair_value = (best_ask + best_bid) / 2
+            print(f"No recent trades, using mid-price as fair value: {self.resin_fair_value}")
         
         # Get the best bid and ask available
         if order_depth.sell_orders:
@@ -63,7 +88,15 @@ class Trader:
             
         # Market making logic - buy low, sell high
         # Calculate acceptable prices with a margin
-        margin = 1  # Adjust based on market conditions
+        # Adjust margin based on recent trade volatility if we have enough data
+        if len(self.recent_trades) > 1:
+            price_range = max(self.recent_trades) - min(self.recent_trades)
+            margin = max(1, price_range * 0.1)  # Adaptive margin based on price volatility
+        else:
+            margin = 1  # Default margin
+            
+        print(f"Using margin: {margin}")
+        
         buy_price = self.resin_fair_value - margin
         sell_price = self.resin_fair_value + margin
         
