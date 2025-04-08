@@ -124,16 +124,7 @@ class Logger:
 logger = Logger()
 
 
-class Trader:
-    def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
-        result = {}
-        conversions = 0
-        trader_data = ""
 
-        # TODO: Add logic
-
-        logger.flush(state, result, conversions, trader_data)
-        return result, conversions, trader_data
 class Trader:
     def __init__(self):
         # Initialize trader state
@@ -166,7 +157,16 @@ class Trader:
         conversions = 0
         logger.flush(state, result, conversions, trader_data)
         return result, conversions, trader_data
-    
+    def market_make(self, pos_limit,  product, Orders, bid, ask, position, buy_vol, sell_vol):
+        buy_quantity = pos_limit - (position + buy_vol)
+        if buy_quantity > 0:
+            #market make send a bid
+            Orders.append(Order(product,round(bid), buy_quantity))
+        sell_quantity = pos_limit + (position - sell_vol)
+        if  sell_quantity > 0:
+            Orders.append(Order(product,round(ask),buy_quantity))
+        return Orders 
+
     def trade_resin(self, product: str, state: TradingState) -> List[Order]:
         """Market making strategy for Rainforest Resin"""
         order_depth: OrderDepth = state.order_depths[product]
@@ -201,21 +201,41 @@ class Trader:
             best_bid, best_bid_amount = 0, 0
         buy_capacity = position_limit - position
         sell_capacity = position_limit + position  # For short positions
+        buy_vol = 0
+        sell_vol = 0
         if (best_ask < 10000):
             #purchase
-            trade_volume = max(best_ask_amount,buy_capacity) 
+            trade_volume = min(best_ask_amount,buy_capacity) 
+
             if trade_volume > 0:
                 orders.append(Order(product,best_ask,trade_volume))
                 summary = f"LIMIT BUY {int(trade_volume)} {product} at {best_ask} "
+                buy_vol = trade_volume
                 logger.print(summary)
         elif (best_bid > 10000):
             #sell
-            trade_volume = max(best_bid,sell_capacity) 
+            trade_volume = min(best_bid,sell_capacity) 
             if trade_volume > 0:
                 orders.append(Order(product,best_bid,-trade_volume))
-                summary = f"LIMIT SELL {int(trade_volume)} {product} at {be
-                                                                         st_bid} "
+                sell_vol = trade_volume
+                summary = f"LIMIT SELL {int(trade_volume)} {product} at {best_bid}"
                 logger.print(summary)
+        #market_making_orders = self.market_make(50,product,orders,9998,10002,position,buy_vol,sell_vol)
+        #logger.print(market_making_orders)
+        #orders.extend(market_making_orders)
+        #market_making_strategy 
+        
+        
+        #position management
+        # if (position >= 25):
+        #     orders.append(Order(product,10000,-25))
+        #     summary = f"LIMIT SELL {-25} {product} at {10000}"
+        #     logger.print(summary)
+        # elif(position <= -25):
+        #     orders.append(Order(product,10000,25))
+        #     summary = f"LIMIT BUY {25} {product} at {10000}"
+        #     logger.print(summary)
+
         #adjust by doing remaining trades with buy and sell orders 
 
         return orders
