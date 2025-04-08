@@ -213,7 +213,8 @@ class Trader:
             trade_volume = max(best_bid,sell_capacity) 
             if trade_volume > 0:
                 orders.append(Order(product,best_bid,-trade_volume))
-                summary = f"LIMIT SELL {int(trade_volume)} {product} at {best_bid} "
+                summary = f"LIMIT SELL {int(trade_volume)} {product} at {be
+                                                                         st_bid} "
                 logger.print(summary)
         #adjust by doing remaining trades with buy and sell orders 
 

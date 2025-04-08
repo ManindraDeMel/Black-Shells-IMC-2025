@@ -1,16 +1,19 @@
 from datamodel import OrderDepth, UserId, TradingState, Order
 from typing import List, Dict
+<<<<<<< HEAD
 import statistics
 import math
 import numpy as np
+=======
+import json
+>>>>>>> 564f834a620612d2a744892a3b93dcaf85258605
 
 class Trader:
     def __init__(self):
         # Initialize trader state
         self.resin_fair_value = 10000  # Initial guess for Rainforest Resin
-        self.recent_kelp_prices = []   # Store recent kelp prices to detect trends
-        self.kelp_moving_avg_short = None  # Short-term moving average
-        self.kelp_moving_avg_long = None   # Long-term moving average
+        self.recent_trades = []  # Store recent trade prices
+        self.max_trades_to_track = 10  # Number of recent trades to use for fair value calculation
         
     def run(self, state: TradingState):
         print("traderData: " + state.traderData)
@@ -22,14 +25,23 @@ class Trader:
         # Handle each product separately
         for product in state.order_depths:
             if product == 'RAINFOREST_RESIN':
+<<<<<<< HEAD
                 #result[product] = self.trade_resin(product, state)
                 pass
             elif product == 'KELP':
                 result[product] = self.trade_kelp2(product, state)
+=======
+                result[product] = self.trade_resin(product, state)
+            else:
+                # Skip other products (including KELP)
+                result[product] = []
+>>>>>>> 564f834a620612d2a744892a3b93dcaf85258605
         
-        # Serialize our state
-        kelp_prices_str = ",".join([str(price) for price in self.recent_kelp_prices])
-        trader_data = f"{self.resin_fair_value}|{kelp_prices_str}"
+        # Serialize our state - tracking resin fair value and recent trades
+        trader_data = json.dumps({
+            "resin_fair_value": self.resin_fair_value,
+            "recent_trades": self.recent_trades
+        })
         
         # We're not using conversions in the tutorial
         conversions = 0
@@ -37,26 +49,43 @@ class Trader:
         return result, conversions, trader_data
     
     def trade_resin(self, product: str, state: TradingState) -> List[Order]:
-        """Market making strategy for Rainforest Resin"""
+        """Market making strategy for Rainforest Resin based on recent trades"""
         order_depth: OrderDepth = state.order_depths[product]
         orders: List[Order] = []
         position = state.position.get(product, 0)
         position_limit = 50
         
         # Reconstruct our state if available
-        if state.traderData and "|" in state.traderData:
-            parts = state.traderData.split("|")
-            if len(parts) > 0:
-                try:
-                    self.resin_fair_value = float(parts[0])
-                except:
-                    pass
+        if state.traderData:
+            try:
+                data = json.loads(state.traderData)
+                self.resin_fair_value = data.get("resin_fair_value", 10000)
+                self.recent_trades = data.get("recent_trades", [])
+            except:
+                pass
         
-        # Calculate fair value based on the mid-price of the order book
-        if order_depth.sell_orders and order_depth.buy_orders:
+        # Update recent trades list with new market trades and our own trades
+        if product in state.market_trades:
+            for trade in state.market_trades[product]:
+                self.recent_trades.append(trade.price)
+        
+        if product in state.own_trades:
+            for trade in state.own_trades[product]:
+                self.recent_trades.append(trade.price)
+        
+        # Keep only the most recent trades
+        self.recent_trades = self.recent_trades[-self.max_trades_to_track:]
+        
+        # Calculate fair value based on recent trades if we have enough data
+        if len(self.recent_trades) > 0:
+            self.resin_fair_value = sum(self.recent_trades) / len(self.recent_trades)
+            print(f"Updated fair value based on {len(self.recent_trades)} recent trades: {self.resin_fair_value}")
+        # Fallback to mid-price if no trade data is available
+        elif order_depth.sell_orders and order_depth.buy_orders:
             best_ask = min(order_depth.sell_orders.keys())
             best_bid = max(order_depth.buy_orders.keys())
             self.resin_fair_value = (best_ask + best_bid) / 2
+            print(f"No recent trades, using mid-price as fair value: {self.resin_fair_value}")
         
         # Get the best bid and ask available
         if order_depth.sell_orders:
@@ -72,12 +101,20 @@ class Trader:
             
         # Market making logic - buy low, sell high
         # Calculate acceptable prices with a margin
-        margin = 1  # Adjust based on market conditions
+        # Adjust margin based on recent trade volatility if we have enough data
+        if len(self.recent_trades) > 1:
+            price_range = max(self.recent_trades) - min(self.recent_trades)
+            margin = max(1, price_range * 0.1)  # Adaptive margin based on price volatility
+        else:
+            margin = 1  # Default margin
+            
+        print(f"Using margin: {margin}")
+        
         buy_price = self.resin_fair_value - margin
         sell_price = self.resin_fair_value + margin
         
         # Adjust based on our current position
-        position_factor = 0.2 * (position / position_limit)
+        position_factor = 0.2 * (position / position_limit) if position_limit != 0 else 0
         buy_price -= position_factor * margin
         sell_price += position_factor * margin
         
@@ -101,13 +138,16 @@ class Trader:
                 
         # Optional: place limit orders at our prices
         if buy_capacity > 10:
-            orders.append(Order(product, int(buy_price), 10))
-            print(f"LIMIT BUY {product}: 10x at {int(buy_price)}")
+            limit_buy_price = int(buy_price)
+            orders.append(Order(product, limit_buy_price, 10))
+            print(f"LIMIT BUY {product}: 10x at {limit_buy_price}")
             
         if sell_capacity > 10:
-            orders.append(Order(product, int(sell_price), -10))
-            print(f"LIMIT SELL {product}: 10x at {int(sell_price)}")
+            limit_sell_price = int(sell_price)
+            orders.append(Order(product, limit_sell_price, -10))
+            print(f"LIMIT SELL {product}: 10x at {limit_sell_price}")
         
+<<<<<<< HEAD
         return orders
     
     def trade_kelp2(self,product:str, state: TradingState) -> List[Order]:
@@ -141,4 +181,6 @@ class Trader:
                 if trade_size > 0:
                             orders.append(Order(product, best_ask, trade_size))
                             print(f"TREND BUY {product}: {trade_size}x at {best_ask}")
+=======
+>>>>>>> 564f834a620612d2a744892a3b93dcaf85258605
         return orders
