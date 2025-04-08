@@ -129,6 +129,7 @@ class Trader:
     def __init__(self):
         # Initialize trader state
         self.resin_fair_value = 10000  # Initial guess for Rainforest Resin
+        self.resin_spread = 1.5        # Std dev of Resin is approximately 1.5
         self.recent_kelp_prices = []   # Store recent kelp prices to detect trends
         self.kelp_moving_avg_short = None  # Short-term moving average
         self.kelp_moving_avg_long = None   # Long-term moving average
@@ -140,40 +141,6 @@ class Trader:
         # Initialize the result dict with empty lists for all products
         result = {product: [] for product in state.order_depths.keys()}
         
-        # Handle each product separately
-        for product in state.order_depths:
-            if product == 'RAINFOREST_RESIN':
-                result[product] = self.trade_resin(product, state)
-                
-            elif product == 'KELP':
-                pass
-                #result[product] = self.trade_kelp2(product, state)
-        
-        # Serialize our state
-        kelp_prices_str = ",".join([str(price) for price in self.recent_kelp_prices])
-        trader_data = f"{self.resin_fair_value}|{kelp_prices_str}"
-        
-        # We're not using conversions in the tutorial
-        conversions = 0
-        logger.flush(state, result, conversions, trader_data)
-        return result, conversions, trader_data
-    def market_make(self, pos_limit,  product, Orders, bid, ask, position, buy_vol, sell_vol):
-        buy_quantity = pos_limit - (position + buy_vol)
-        if buy_quantity > 0:
-            #market make send a bid
-            Orders.append(Order(product,round(bid), buy_quantity))
-        sell_quantity = pos_limit + (position - sell_vol)
-        if  sell_quantity > 0:
-            Orders.append(Order(product,round(ask),buy_quantity))
-        return Orders 
-
-    def trade_resin(self, product: str, state: TradingState) -> List[Order]:
-        """Market making strategy for Rainforest Resin"""
-        order_depth: OrderDepth = state.order_depths[product]
-        orders: List[Order] = []
-        position = state.position.get(product, 0)
-        position_limit = 50
-        
         # Reconstruct our state if available
         if state.traderData and "|" in state.traderData:
             parts = state.traderData.split("|")
@@ -182,65 +149,104 @@ class Trader:
                     self.resin_fair_value = float(parts[0])
                 except:
                     pass
-        #our strategy is to buy any orders when the ask price is less than 10000 and sell any orders when the bid is over 10000
-        #the STD of Resin is 1.5, so we will place buy orders at 9998.5 and sell at 10001.5 for any remaining orders
+                    
+                if len(parts) > 1 and parts[1]:
+                    try:
+                        self.recent_kelp_prices = [float(p) for p in parts[1].split(",") if p]
+                    except:
+                        pass
+        
+        # Handle each product separately
+        for product in state.order_depths:
+            if product == 'RAINFOREST_RESIN':
+                result[product] = self.trade_resin(product, state)
+                
+            elif product == 'KELP':
+                result[product] = self.trade_kelp(product, state)
+        
+        # Serialize our state
+        kelp_prices_str = ",".join([str(price) for price in self.recent_kelp_prices])
+        trader_data = f"{self.resin_fair_value}|{kelp_prices_str}"
+        
+        # We're not using conversions in the tutorial
+        conversions = 0
+        
+        logger.flush(state, result, conversions, trader_data)
+        return result, conversions, trader_data
+
+    def trade_resin(self, product: str, state: TradingState) -> List[Order]:
+        """Market making strategy for Rainforest Resin"""
+        order_depth: OrderDepth = state.order_depths[product]
+        orders: List[Order] = []
+        position = state.position.get(product, 0)
+        position_limit = 50
+        
+        # Update fair value if we have both bid and ask
         if order_depth.sell_orders and order_depth.buy_orders:
             best_ask = min(order_depth.sell_orders.keys())
             best_bid = max(order_depth.buy_orders.keys())
             self.resin_fair_value = (best_ask + best_bid) / 2
-        # Get the best bid and ask available
-        if order_depth.sell_orders:
-            best_ask, best_ask_amount = min(order_depth.sell_orders.items())
-            best_ask_amount = -best_ask_amount  # Convert to positive
-        else:
-            best_ask, best_ask_amount = float('inf'), 0
             
-        if order_depth.buy_orders:
-            best_bid, best_bid_amount = max(order_depth.buy_orders.items())
-        else:
-            best_bid, best_bid_amount = 0, 0
+        # Calculate remaining buy/sell capacity
         buy_capacity = position_limit - position
         sell_capacity = position_limit + position  # For short positions
-        buy_vol = 0
-        sell_vol = 0
-        if (best_ask < 10000):
-            #purchase
-            trade_volume = min(best_ask_amount,buy_capacity) 
-
-            if trade_volume > 0:
-                orders.append(Order(product,best_ask,trade_volume))
-                summary = f"LIMIT BUY {int(trade_volume)} {product} at {best_ask} "
-                buy_vol = trade_volume
-                logger.print(summary)
-        elif (best_bid > 10000):
-            #sell
-            trade_volume = min(best_bid,sell_capacity) 
-            if trade_volume > 0:
-                orders.append(Order(product,best_bid,-trade_volume))
-                sell_vol = trade_volume
-                summary = f"LIMIT SELL {int(trade_volume)} {product} at {best_bid}"
-                logger.print(summary)
-        #market_making_orders = self.market_make(50,product,orders,9998,10002,position,buy_vol,sell_vol)
-        #logger.print(market_making_orders)
-        #orders.extend(market_making_orders)
-        #market_making_strategy 
         
+        # Process all profitable sell orders (price > 10000)
+        if order_depth.buy_orders:
+            # Sort buy orders by price in descending order to sell at the highest prices first
+            sorted_buy_prices = sorted(order_depth.buy_orders.keys(), reverse=True)
+            
+            for price in sorted_buy_prices:
+                if price > 10000:  # Profitable to sell
+                    volume = order_depth.buy_orders[price]
+                    sell_volume = min(volume, sell_capacity)
+                    
+                    if sell_volume > 0:
+                        orders.append(Order(product, price, -sell_volume))
+                        sell_capacity -= sell_volume
+                        logger.print(f"LIMIT SELL {sell_volume} {product} at {price}")
+                        
+                    if sell_capacity <= 0:
+                        break
         
-        #position management
-        # if (position >= 25):
-        #     orders.append(Order(product,10000,-25))
-        #     summary = f"LIMIT SELL {-25} {product} at {10000}"
-        #     logger.print(summary)
-        # elif(position <= -25):
-        #     orders.append(Order(product,10000,25))
-        #     summary = f"LIMIT BUY {25} {product} at {10000}"
-        #     logger.print(summary)
-
-        #adjust by doing remaining trades with buy and sell orders 
-
+        # Process all profitable buy orders (price < 10000)
+        if order_depth.sell_orders:
+            # Sort sell orders by price in ascending order to buy at the lowest prices first
+            sorted_sell_prices = sorted(order_depth.sell_orders.keys())
+            
+            for price in sorted_sell_prices:
+                if price < 10000:  # Profitable to buy
+                    volume = -order_depth.sell_orders[price]  # Convert to positive
+                    buy_volume = min(volume, buy_capacity)
+                    
+                    if buy_volume > 0:
+                        orders.append(Order(product, price, buy_volume))
+                        buy_capacity -= buy_volume
+                        logger.print(f"LIMIT BUY {buy_volume} {product} at {price}")
+                        
+                    if buy_capacity <= 0:
+                        break
+        
+        # Market making - place orders at fair price +/- spread
+        market_making_buy_price = round(10000 - self.resin_spread)
+        market_making_sell_price = round(10000 + self.resin_spread)
+        
+        # Only place market making orders if we have capacity left
+        if buy_capacity > 0:
+            orders.append(Order(product, market_making_buy_price, buy_capacity))
+            logger.print(f"MM BUY {buy_capacity} {product} at {market_making_buy_price}")
+            
+        if sell_capacity > 0:
+            orders.append(Order(product, market_making_sell_price, -sell_capacity))
+            logger.print(f"MM SELL {sell_capacity} {product} at {market_making_sell_price}")
+            
         return orders
 
-    def trade_kelp2(self,product:str, state: TradingState) -> List[Order]:
-        orders =[]
+    def trade_kelp(self, product: str, state: TradingState) -> List[Order]:
+        """Strategy for Kelp - placeholder for now"""
+        orders = []
+        
+        # Here you would implement your Kelp trading strategy
+        # This is just a placeholder
+        
         return orders
-
