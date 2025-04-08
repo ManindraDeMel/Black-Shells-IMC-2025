@@ -1,0 +1,4 @@
+*.log
+__pycache__/**
+*.pyc
+Round1/__pycache__/round1.cpython-313.pyc
