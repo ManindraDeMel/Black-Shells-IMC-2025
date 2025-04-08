@@ -1,0 +1,25 @@
+=== TRADING PERFORMANCE REPORT ===
+
+Report generated at: 2025-04-07 02:07:16
+
+=== OVERALL STATISTICS ===
+Total trades: 47
+Buy trades: 39
+Sell trades: 8
+Total buy volume: 138
+Total sell volume: 89
+Total buy value: 278845
+Total sell value: 179704
+Estimated P&L: -99141
+
+=== PRODUCT STATISTICS ===
+
+--- KELP ---
+Total trades: 47
+Buy trades: 39
+Sell trades: 8
+Buy volume: 138
+Sell volume: 89
+Buy value: 278845
+Sell value: 179704
+Estimated P&L: -99141
