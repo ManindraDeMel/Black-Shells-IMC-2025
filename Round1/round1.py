@@ -4,6 +4,7 @@ import statistics
 import math
 import numpy as np
 import json
+from collections import defaultdict
 
 
 class Logger:
@@ -450,61 +451,70 @@ class Trader:
                 logger.print(f"MM SELL L{i+1}: {level_sell_size} {product} at {sell_price}")
         
         return orders
+    
 
+
+    def aggregate_orders(self, order_list):
+        aggregated = defaultdict(int)
+        for order in order_list:
+            aggregated[(order.price, order.symbol)] += order.quantity
+        return [Order(symbol, price, quantity) for (price, symbol), quantity in aggregated.items() if quantity != 0]
+
+    
     def trade_kelp(self, product: str, state: TradingState) -> List[Order]:
-        """Strategy for Kelp trading - from chatGPT"""
-        # This is just a placeholder - implement your KELP strategy here
-        order_depth: OrderDepth = state.order_depths[product]
-        orders: List[Order] = []
+        """Strategy for Kelp trading - placeholder for now"""
+        orders = []
+        order_depth = state.order_depths[product]
         position = state.position.get(product, 0)
         position_limit = 50
 
-        # Identify market-maker quotes by finding largest volume on bid and ask
-        if order_depth.buy_orders and order_depth.sell_orders:
-            market_maker_bid = max(order_depth.buy_orders.items(), key=lambda x: x[1])[0]
-            market_maker_ask = min(order_depth.sell_orders.items(), key=lambda x: -x[1])[0]
+        if not order_depth.buy_orders or not order_depth.sell_orders:
+            logger.print("KELP: empty order book, no orders placed.")
+            return orders
 
-            # Compute market-maker mid price
-            mm_mid_price = (market_maker_bid + market_maker_ask) / 2
+        market_maker_bid = max(order_depth.buy_orders.keys())
+        market_maker_ask = min(order_depth.sell_orders.keys())
+        mm_mid_price = (market_maker_bid + market_maker_ask) / 2
 
-            # Store recent mid prices for rolling average
-            self.kelp_prices.append(mm_mid_price)
-            if len(self.kelp_prices) > self.max_history:
-                self.kelp_prices.pop(0)
+        self.kelp_prices.append(mm_mid_price)
+        if len(self.kelp_prices) > self.max_history:
+            self.kelp_prices.pop(0)
 
-            # Calculate rolling fair value (using last n mid-prices, choose n=20 as initial guess)
-            rolling_window = 10
-            if len(self.kelp_prices) >= rolling_window:
-                fair_value = np.mean(self.kelp_prices[-rolling_window:])
-            else:
-                fair_value = mm_mid_price
+        n = 10
+        fair_value = np.mean(self.kelp_prices[-n:]) if len(self.kelp_prices) >= n else mm_mid_price
 
-            # Define dynamic spread based on observed recent volatility
-            volatility_window = min(len(self.kelp_prices), 30)
-            price_volatility = np.std(self.kelp_prices[-volatility_window:])
-            spread = max(1, min(5, price_volatility))
+        volatility = np.std(self.kelp_prices[-n:])
+        spread = np.clip(volatility, 1, 5)
 
-            # Passive Market-making
-            buy_quote = round(fair_value - spread, 2)
-            sell_quote = round(fair_value + spread, 2)
+        buy_quote = int(round(fair_value - spread))
+        sell_quote = int(round(fair_value + spread))
 
-            # Adjust orders based on inventory
-            if position < position_limit:
-                orders.append(Order(product, buy_quote, min(10, position_limit - position)))
-            if position > -position_limit:
-                orders.append(Order(product, sell_quote, -min(10, position_limit + position)))
+        if buy_quote >= sell_quote:
+            buy_quote = int(fair_value - 1)
+            sell_quote = int(fair_value + 1)
 
-            # Aggressively take good prices
-            for ask_price, ask_volume in sorted(order_depth.sell_orders.items()):
-                if ask_price < fair_value - spread/2 and position < position_limit:
-                    take_volume = min(-ask_volume, position_limit - position)
-                    orders.append(Order(product, ask_price, take_volume))
-                    position += take_volume
+        buy_size = 0 if position >= position_limit else min(10, position_limit - position)
+        sell_size = 0 if position <= -position_limit else min(10, position_limit + position)
 
-            for bid_price, bid_volume in sorted(order_depth.buy_orders.items(), reverse=True):
-                if bid_price > fair_value + spread/2 and position > -position_limit:
-                    take_volume = min(bid_volume, position_limit + position)
-                    orders.append(Order(product, bid_price, -take_volume))
-                    position -= take_volume
-            
+        if buy_size > 0:
+            orders.append(Order(product, buy_quote, int(buy_size)))
+        if sell_size > 0:
+            orders.append(Order(product, sell_quote, -int(sell_size)))
+
+        theoretical_position = position
+        for ask_price, ask_volume in sorted(order_depth.sell_orders.items()):
+            if ask_price < fair_value - spread / 2 and theoretical_position < position_limit:
+                take_volume = int(min(-ask_volume, position_limit - theoretical_position))
+                if take_volume > 0:
+                    orders.append(Order(product, int(ask_price), take_volume))
+                    theoretical_position += take_volume
+
+        theoretical_position = position
+        for bid_price, bid_volume in sorted(order_depth.buy_orders.items(), reverse=True):
+            if bid_price > fair_value + spread / 2 and theoretical_position > -position_limit:
+                take_volume = int(min(bid_volume, position_limit + theoretical_position))
+                if take_volume > 0:
+                    orders.append(Order(product, int(bid_price), -take_volume))
+                    theoretical_position -= take_volume
+
         return orders
