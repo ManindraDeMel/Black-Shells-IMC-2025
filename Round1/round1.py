@@ -1,5 +1,5 @@
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import statistics
 import math
 import numpy as np
@@ -358,7 +358,7 @@ class Trader:
         return orders
     
     def process_buy_opportunities(self, product: str, order_depth: OrderDepth, 
-                                fair_value: float, buy_capacity: int) -> (List[Order], int):
+                                fair_value: float, buy_capacity: int) -> Tuple[List[Order], int]:
         """Process all buy opportunities (price < fair value)"""
         orders = []
         remaining_capacity = buy_capacity
@@ -384,7 +384,7 @@ class Trader:
         return orders, remaining_capacity
     
     def process_sell_opportunities(self, product: str, order_depth: OrderDepth, 
-                                 fair_value: float, sell_capacity: int) -> (List[Order], int):
+                                 fair_value: float, sell_capacity: int) -> Tuple[List[Order], int]:
         """Process all sell opportunities (price > fair value)"""
         orders = []
         remaining_capacity = sell_capacity
@@ -452,6 +452,59 @@ class Trader:
         return orders
 
     def trade_kelp(self, product: str, state: TradingState) -> List[Order]:
-        """Strategy for Kelp trading - placeholder for now"""
+        """Strategy for Kelp trading - from chatGPT"""
         # This is just a placeholder - implement your KELP strategy here
-        return []
+        order_depth: OrderDepth = state.order_depths[product]
+        orders: List[Order] = []
+        position = state.position.get(product, 0)
+        position_limit = 50
+
+        # Identify market-maker quotes by finding largest volume on bid and ask
+        if order_depth.buy_orders and order_depth.sell_orders:
+            market_maker_bid = max(order_depth.buy_orders.items(), key=lambda x: x[1])[0]
+            market_maker_ask = min(order_depth.sell_orders.items(), key=lambda x: -x[1])[0]
+
+            # Compute market-maker mid price
+            mm_mid_price = (market_maker_bid + market_maker_ask) / 2
+
+            # Store recent mid prices for rolling average
+            self.kelp_prices.append(mm_mid_price)
+            if len(self.kelp_prices) > self.max_history:
+                self.kelp_prices.pop(0)
+
+            # Calculate rolling fair value (using last n mid-prices, choose n=20 as initial guess)
+            rolling_window = 10
+            if len(self.kelp_prices) >= rolling_window:
+                fair_value = np.mean(self.kelp_prices[-rolling_window:])
+            else:
+                fair_value = mm_mid_price
+
+            # Define dynamic spread based on observed recent volatility
+            volatility_window = min(len(self.kelp_prices), 30)
+            price_volatility = np.std(self.kelp_prices[-volatility_window:])
+            spread = max(1, min(5, price_volatility))
+
+            # Passive Market-making
+            buy_quote = round(fair_value - spread, 2)
+            sell_quote = round(fair_value + spread, 2)
+
+            # Adjust orders based on inventory
+            if position < position_limit:
+                orders.append(Order(product, buy_quote, min(10, position_limit - position)))
+            if position > -position_limit:
+                orders.append(Order(product, sell_quote, -min(10, position_limit + position)))
+
+            # Aggressively take good prices
+            for ask_price, ask_volume in sorted(order_depth.sell_orders.items()):
+                if ask_price < fair_value - spread/2 and position < position_limit:
+                    take_volume = min(-ask_volume, position_limit - position)
+                    orders.append(Order(product, ask_price, take_volume))
+                    position += take_volume
+
+            for bid_price, bid_volume in sorted(order_depth.buy_orders.items(), reverse=True):
+                if bid_price > fair_value + spread/2 and position > -position_limit:
+                    take_volume = min(bid_volume, position_limit + position)
+                    orders.append(Order(product, bid_price, -take_volume))
+                    position -= take_volume
+            
+        return orders
