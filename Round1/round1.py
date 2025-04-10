@@ -159,8 +159,8 @@ class Trader:
                 result[product] = self.trade_resin(product, state)
             elif product == 'KELP':
                 result[product] = self.trade_kelp(product, state)
-            #elif product == 'SQUID_INK':
-            #    result[product] = self.trade_squid(product, state)
+            elif product == 'SQUID_INK':
+                result[product] = self.trade_squid(product, state)
         
         # Serialize our state
         trader_data = self.serialize_state()
@@ -466,8 +466,6 @@ class Trader:
                 logger.print(f"MM SELL L{i+1}: {level_sell_size} {product} at {sell_price}")
         
         return orders
-    
-
 
     def aggregate_orders(self, order_list):
         aggregated = defaultdict(int)
@@ -572,4 +570,95 @@ class Trader:
 
         return orders
     
-    
+    def trade_squid(self, product: str, state: TradingState) -> List[Order]:
+        """
+        Implements the SQUID_INK strategy using the approach from round12024.py,
+        """
+        orders = []
+        order_depth = state.order_depths[product]
+        position = state.position.get(product, 0)
+        position_limit = 10  # can be adjusted as needed
+
+        # Exit if order book data is incomplete.
+        if not order_depth.buy_orders or not order_depth.sell_orders:
+            return orders
+
+        # Compute best bid and ask from the order book.
+        best_bid = max(order_depth.buy_orders.keys())
+        best_ask = min(order_depth.sell_orders.keys())
+
+        # Set parameters for SQUID_INK 
+        take_width = 1
+        adverse_volume = 10
+        reversion_beta = -0.3  # mean reversion factor
+        default_edge = 1  # used later as a fixed spread
+
+        # Filter orders by adverse volume:
+        filtered_asks = [price for price, vol in order_depth.sell_orders.items() if abs(vol) >= adverse_volume]
+        filtered_bids = [price for price, vol in order_depth.buy_orders.items() if abs(vol) >= adverse_volume]
+
+        # Compute a mid-price:
+        if filtered_asks and filtered_bids:
+            mm_mid_price = (min(filtered_asks) + max(filtered_bids)) / 2
+        else:
+            # Fallback to average of best bid and ask if filters yield nothing.
+            mm_mid_price = (best_bid + best_ask) / 2
+
+        # Use a stored last price to compute a reversion-adjusted fair value.
+        # Initialize self.squid_last_price if not set.
+        if not hasattr(self, "squid_last_price") or self.squid_last_price is None:
+            fair_value = mm_mid_price
+        else:
+            last_price = self.squid_last_price
+            last_returns = (mm_mid_price - last_price) / last_price
+            pred_returns = last_returns * reversion_beta
+            fair_value = mm_mid_price + (mm_mid_price * pred_returns)
+        self.squid_last_price = mm_mid_price  # update stored price
+
+        # Compute a basic spread and adjust for order-book imbalance.
+        spread = default_edge  # using the default edge as the spread for this product
+
+        # Simple imbalance adjustment.
+        buy_vol = sum(order_depth.buy_orders.values())
+        sell_vol = -sum(order_depth.sell_orders.values())
+        imbalance = (buy_vol - sell_vol) / max(1, (buy_vol + sell_vol))
+        imbalance_adj = int(round(imbalance * spread))
+
+        # Compute final quotes.
+        buy_quote = int(round(fair_value - spread + imbalance_adj))
+        sell_quote = int(round(fair_value + spread + imbalance_adj))
+
+        # Ensure the quotes do not cross.
+        if buy_quote >= sell_quote:
+            buy_quote = int(fair_value - 1)
+            sell_quote = int(fair_value + 1)
+
+        # Determine order sizes (capped at 20 per order).
+        buy_size = 0 if position >= position_limit else min(20, position_limit - position)
+        sell_size = 0 if position <= -position_limit else min(20, position_limit + position)
+
+        # Submit market-making orders.
+        if buy_size > 0:
+            orders.append(Order(product, buy_quote, buy_size))
+        if sell_size > 0:
+            orders.append(Order(product, sell_quote, -sell_size))
+
+        # Aggressive liquidity-taking: if the market price is attractive,
+        # iterate through the order book and “take” orders.
+        theoretical_position = position
+        for ask_price, ask_volume in sorted(order_depth.sell_orders.items()):
+            if ask_price < fair_value - spread / 2 and theoretical_position < position_limit:
+                take_volume = min(-ask_volume, position_limit - theoretical_position)
+                if take_volume > 0:
+                    orders.append(Order(product, int(ask_price), take_volume))
+                    theoretical_position += take_volume
+
+        theoretical_position = position
+        for bid_price, bid_volume in sorted(order_depth.buy_orders.items(), reverse=True):
+            if bid_price > fair_value + spread / 2 and theoretical_position > -position_limit:
+                take_volume = min(bid_volume, position_limit + theoretical_position)
+                if take_volume > 0:
+                    orders.append(Order(product, int(bid_price), -take_volume))
+                    theoretical_position -= take_volume
+
+        return orders
