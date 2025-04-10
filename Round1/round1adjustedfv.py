@@ -229,15 +229,15 @@ class Trader:
         best_ask = min(order_depth.sell_orders.keys()) if order_depth.sell_orders else float('inf')
         
         # Update fair value based on market data
-        #self.update_fair_value(product, order_depth, position, best_bid, best_ask)
+        self.update_fair_value(product, order_depth, position, best_bid, best_ask)
         
         # Calculate remaining buy/sell capacity
         buy_capacity = position_limit - position
         sell_capacity = position_limit + position
         
         # Apply order book imbalance and position-based adjustments
-        #adjusted_fair_value = self.calculate_adjusted_fair_value(product, order_depth, position, position_limit)
-        #logger.print(f"Fair value: {self.resin_fair_value}, Adjusted: {adjusted_fair_value}, Spread: {self.resin_spread}")
+        adjusted_fair_value = self.calculate_adjusted_fair_value(product, order_depth, position, position_limit)
+        logger.print(f"Fair value: {self.resin_fair_value}, Adjusted: {adjusted_fair_value}, Spread: {self.resin_spread}")
         
         # Profit-taking logic for existing inventory
         orders.extend(self.profit_taking_orders(product, position, best_bid, best_ask, buy_capacity, sell_capacity))
@@ -248,20 +248,20 @@ class Trader:
         
         # Process all profitable opportunities
         buy_orders, updated_buy_capacity = self.process_buy_opportunities(
-            product, order_depth, 10000, buy_capacity
+            product, order_depth, adjusted_fair_value, buy_capacity
         )
         orders.extend(buy_orders)
         buy_capacity = updated_buy_capacity
         
         sell_orders, updated_sell_capacity = self.process_sell_opportunities(
-            product, order_depth, 10000, sell_capacity
+            product, order_depth, adjusted_fair_value, sell_capacity
         )
         orders.extend(sell_orders)
         sell_capacity = updated_sell_capacity
         
         # Apply inventory skew for market making
         skewed_orders = self.apply_inventory_skew(
-            product, position, position_limit, 10000, buy_capacity, sell_capacity
+            product, position, position_limit, adjusted_fair_value, buy_capacity, sell_capacity
         )
         orders.extend(skewed_orders)
         

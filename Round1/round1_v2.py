@@ -475,7 +475,22 @@ class Trader:
         market_maker_bid = max(order_depth.buy_orders.keys())
         market_maker_ask = min(order_depth.sell_orders.keys())
         mm_mid_price = (market_maker_bid + market_maker_ask) / 2
+        #ask_volumes 
+        mmask = None
+        mmbid = None 
+        for ask_price, ask_volume in sorted(order_depth.sell_orders.items()):
+            if( ask_volume > 20):
+                mmask = ask_price
+                break
+        for bid_price, bid_vol in sorted(order_depth.buy_orders.items()):
+            if( bid_volume > 20):
+                mmbid = bid_price
+        
 
+        #LOOK THROUGH BIDS AND ASKS, FIND THE BEST BID (highest) AND THE  best ASK (lowest) WITH VOLUME > 20, take those as the true market makers fair value
+        # THEN, calculate the fair value as the average of that bid price and  ask price 
+        #Then tighten that market by 1 or 2 and market make 
+        #Based off of last years strategy and what some guy in the discord said
         self.kelp_prices.append(mm_mid_price)
         if len(self.kelp_prices) > self.max_history:
             self.kelp_prices.pop(0)

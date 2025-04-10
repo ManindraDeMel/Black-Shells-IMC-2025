@@ -131,7 +131,7 @@ class Trader:
         self.resin_spread = 1.5        # Initial spread for Resin
         self.resin_prices = []         # Store recent trades for volatility calculation
         self.resin_trade_volumes = []  # Track recent trade volumes
-        
+        self.LIMIT = {"RAINFOREST_RESIN": 50, "KELP": 50, "SQUID_INK": 50}
         # For KELP product
         self.kelp_prices = []
         self.kelp_fair_value = None
@@ -210,7 +210,27 @@ class Trader:
         kelp_fair_value_str = str(self.kelp_fair_value) if self.kelp_fair_value else ""
         
         return f"{self.resin_fair_value}|{self.resin_spread}|{resin_prices_str}|{resin_volumes_str}|{kelp_prices_str}|{kelp_fair_value_str}"
+    
+    def market_make(
+        self,
+        product: str,
+        orders: List[Order],
+        bid: int,
+        ask: int,
+        position: int,
+        buy_order_volume: int,
+        sell_order_volume: int,
+    ) -> (int, int):
+        buy_quantity = self.LIMIT[product] - (position + buy_order_volume)
+        if buy_quantity > 0:
+            orders.append(Order(product, round(bid), buy_quantity))  # Buy order
 
+        sell_quantity = self.LIMIT[product] + (position - sell_order_volume)
+        if sell_quantity > 0:
+            orders.append(Order(product, round(ask), -sell_quantity))  # Sell order
+        return buy_order_volume, sell_order_volume
+
+    
     def trade_resin(self, product: str, state: TradingState) -> List[Order]:
         """Enhanced market making strategy for Rainforest Resin"""
         order_depth: OrderDepth = state.order_depths[product]
@@ -259,12 +279,46 @@ class Trader:
         orders.extend(sell_orders)
         sell_capacity = updated_sell_capacity
         
-        # Apply inventory skew for market making
-        skewed_orders = self.apply_inventory_skew(
-            product, position, position_limit, 10000, buy_capacity, sell_capacity
-        )
-        orders.extend(skewed_orders)
+        # # Apply inventory skew for market making
+        # skewed_orders = self.apply_inventory_skew(
+        #     product, position, position_limit, 10000, buy_capacity, sell_capacity
+        # )
+        # orders.extend(skewed_orders)
+        """ MARKET MAKING STRATEGY"""
+        fair_value = 10000
         
+        # Find best ask above fair value + 1
+        possible_asks = [
+            price for price in order_depth.sell_orders.keys() if price > fair_value + 1
+        ]
+        baaf = min(possible_asks) if possible_asks else fair_value + 4 #best ask after fair
+
+        # Find best bid below fair value - 1
+        possible_bids = [
+            price for price in order_depth.buy_orders.keys() if price < fair_value - 1
+        ]
+        bbbf = max(possible_bids) if possible_bids else fair_value - 4 #best bid before fair
+
+        if baaf <= fair_value + 2 and position <= 0: #
+            baaf = fair_value + 2
+
+        if bbbf >= fair_value - 2 and position >= 0:
+            bbbf = fair_value - 2
+
+        
+        buy_order_volume, sell_order_volume = self.market_make(
+            product,
+            orders,
+            bbbf + 1,
+            baaf - 1,
+            position,
+            buy_capacity,
+            sell_capacity,
+        )
+        orders.append(Order(product,bbbf+1,buy_capacity))
+        logger.print(f"MARKET MAKING BID {buy_capacity} {product} for {bbbf +1} ")
+        orders.append(Order(product,baaf-1,-sell_capacity))
+        logger.print(f"MARKET MAKING ASK {-sell_capacity} {product} at {baaf -1} ")
         return orders
     
     def update_trade_history(self, product: str, state: TradingState):
