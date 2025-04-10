@@ -159,8 +159,8 @@ class Trader:
                 result[product] = self.trade_resin(product, state)
             elif product == 'KELP':
                 result[product] = self.trade_kelp(product, state)
-            elif product == 'SQUID_INK':
-                result[product] = self.trade_squid(product, state)
+            #elif product == 'SQUID_INK':
+            #    result[product] = self.trade_squid(product, state)
         
         # Serialize our state
         trader_data = self.serialize_state()
