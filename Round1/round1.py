@@ -2,6 +2,7 @@ from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder
 from typing import List, Dict, Any, Tuple
 import statistics
 import math
+import pandas as pd
 import numpy as np
 import json
 from collections import defaultdict
@@ -136,6 +137,9 @@ class Trader:
         self.kelp_prices = []
         self.kelp_fair_value = None
         
+        # For Squid_Ink
+        self.squid_prices = []
+        
         # Maximum history to keep
         self.max_history = 100
         
@@ -155,6 +159,8 @@ class Trader:
                 result[product] = self.trade_resin(product, state)
             elif product == 'KELP':
                 result[product] = self.trade_kelp(product, state)
+            elif product == 'SQUID_INK':
+                result[product] = self.trade_squid(product, state)
         
         # Serialize our state
         trader_data = self.serialize_state()
@@ -199,6 +205,13 @@ class Trader:
             # Restore kelp fair value
             if len(parts) > 5 and parts[5]:
                 self.kelp_fair_value = float(parts[5])
+                
+            # Restore squid prices
+            if len(parts) > 6 and parts[6]:
+                squid_price_strs = parts[6].split(",")
+                self.squid_prices = [float(p) for p in squid_price_strs if p]
+                
+                
         except Exception as e:
             logger.print(f"Error deserializing state: {e}")
     
@@ -208,8 +221,10 @@ class Trader:
         resin_volumes_str = ",".join([str(vol) for vol in self.resin_trade_volumes])
         kelp_prices_str = ",".join([str(price) for price in self.kelp_prices])
         kelp_fair_value_str = str(self.kelp_fair_value) if self.kelp_fair_value else ""
+        squid_prices_str = ",".join([str(price) for price in self.squid_prices])
+
         
-        return f"{self.resin_fair_value}|{self.resin_spread}|{resin_prices_str}|{resin_volumes_str}|{kelp_prices_str}|{kelp_fair_value_str}"
+        return f"{self.resin_fair_value}|{self.resin_spread}|{resin_prices_str}|{resin_volumes_str}|{kelp_prices_str}|{kelp_fair_value_str}|{squid_prices_str}"
 
     def trade_resin(self, product: str, state: TradingState) -> List[Order]:
         """Enhanced market making strategy for Rainforest Resin"""
@@ -462,59 +477,99 @@ class Trader:
 
     
     def trade_kelp(self, product: str, state: TradingState) -> List[Order]:
-        """Strategy for Kelp trading - placeholder for now"""
+
         orders = []
         order_depth = state.order_depths[product]
         position = state.position.get(product, 0)
         position_limit = 50
 
+        # Exit early if order book data is unavailable.
         if not order_depth.buy_orders or not order_depth.sell_orders:
-            logger.print("KELP: empty order book, no orders placed.")
             return orders
 
+        # Compute the market mid-price.
         market_maker_bid = max(order_depth.buy_orders.keys())
         market_maker_ask = min(order_depth.sell_orders.keys())
         mm_mid_price = (market_maker_bid + market_maker_ask) / 2
 
+        # Update our price history for Kelp.
         self.kelp_prices.append(mm_mid_price)
         if len(self.kelp_prices) > self.max_history:
             self.kelp_prices.pop(0)
 
-        n = 10
-        fair_value = np.mean(self.kelp_prices[-n:]) if len(self.kelp_prices) >= n else mm_mid_price
+        # Adaptive rolling window based on volatility (using the last 10 values).
+        recent_volatility = np.std(self.kelp_prices[-10:])
+        rolling_window = 5 if recent_volatility > 2 else 10
 
-        volatility = np.std(self.kelp_prices[-n:])
-        spread = np.clip(volatility, 1, 5)
+        # Use EWMA for fair value to give more weight to recent prices.
+    
+        if len(self.kelp_prices) >= rolling_window:
+            prices_series = pd.Series(self.kelp_prices[-rolling_window:])
+            fair_value = int(prices_series.ewm(span=rolling_window, adjust=False).mean().iloc[-1])
+        else:
+            fair_value = int(mm_mid_price)
 
-        buy_quote = int(round(fair_value - spread))
-        sell_quote = int(round(fair_value + spread))
+        # Dynamic spread based on volatility.
+        # You might experiment with the multiplier; here it is 1.5.
+        spread = int(np.clip(recent_volatility * 1, 1, 5))
 
+        # Improved inventory-aware market-making adjustment.
+        # Use a non-linear function: when position is high, square the ratio.
+        inventory_bias = int((position / position_limit) ** 2 * spread)
+        # If position is negative, invert the bias direction.
+        if position < 0:
+            inventory_bias = -inventory_bias
+
+        # Order book imbalance adjustment remains similar.
+        buy_vol = sum(order_depth.buy_orders.values())
+        sell_vol = -sum(order_depth.sell_orders.values())
+        imbalance = (buy_vol - sell_vol) / max(1, buy_vol + sell_vol)
+        imbalance_adj = int(imbalance * spread)
+
+        # Final adjusted quotes.
+        buy_quote = fair_value - spread - inventory_bias + imbalance_adj
+        sell_quote = fair_value + spread - inventory_bias + imbalance_adj
+
+        # Ensure that quotes do not cross.
         if buy_quote >= sell_quote:
-            buy_quote = int(fair_value - 1)
-            sell_quote = int(fair_value + 1)
+            buy_quote = fair_value - 1
+            sell_quote = fair_value + 1
 
-        buy_size = 0 if position >= position_limit else min(10, position_limit - position)
-        sell_size = 0 if position <= -position_limit else min(10, position_limit + position)
+        # Determine order sizes (capped at 20 per order).
+        buy_size = 0 if position >= position_limit else min(20, position_limit - position)
+        sell_size = 0 if position <= -position_limit else min(20, position_limit + position)
 
+        # Submit market-making orders.
         if buy_size > 0:
-            orders.append(Order(product, buy_quote, int(buy_size)))
+            orders.append(Order(product, buy_quote, buy_size))
         if sell_size > 0:
-            orders.append(Order(product, sell_quote, -int(sell_size)))
+            orders.append(Order(product, sell_quote, -sell_size))
 
+        # Aggressive liquidity taking:
+        # Iterate over the sell orders to "take" liquidity if the price is attractive.
         theoretical_position = position
         for ask_price, ask_volume in sorted(order_depth.sell_orders.items()):
+            # If the ask price is lower than our fair value minus half the spread, consider buying.
             if ask_price < fair_value - spread / 2 and theoretical_position < position_limit:
-                take_volume = int(min(-ask_volume, position_limit - theoretical_position))
+                take_volume = min(-ask_volume, position_limit - theoretical_position)
                 if take_volume > 0:
                     orders.append(Order(product, int(ask_price), take_volume))
                     theoretical_position += take_volume
 
+        # Similarly, for the bid side.
         theoretical_position = position
         for bid_price, bid_volume in sorted(order_depth.buy_orders.items(), reverse=True):
             if bid_price > fair_value + spread / 2 and theoretical_position > -position_limit:
-                take_volume = int(min(bid_volume, position_limit + theoretical_position))
+                take_volume = min(bid_volume, position_limit + theoretical_position)
                 if take_volume > 0:
                     orders.append(Order(product, int(bid_price), -take_volume))
                     theoretical_position -= take_volume
 
+
+        #logger.print(f"[KELP DEBUG] mm_mid_price: {mm_mid_price}, fair_value: {fair_value}, spread: {spread}, "
+        #            f"inventory_bias: {inventory_bias}, imbalance_adj: {imbalance_adj}, buy_quote: {buy_quote}, "
+         #           f"sell_quote: {sell_quote}, position: {position}")
+
         return orders
+    
+    
