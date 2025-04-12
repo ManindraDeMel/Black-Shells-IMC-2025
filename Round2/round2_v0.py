@@ -167,6 +167,23 @@ parameters = {
         "join_edge": 0, #never join orders, always try and penny
         "default_edge" : 1, 
 
+    },
+    Product.PICNIC_BASKET1: {
+        "arb_width": 0,
+        "fair_value": None, #UPDATE LATER
+        #ADD IN MM PARAMS
+    },
+    Product.PICNIC_BASKET2:{
+        "arb_width": 0,
+    },
+    Product.CROISSANTS: {
+        "take_width": 1,
+    },
+    Product.JAMS: {
+        "take_width": 1,
+    },
+    Product.DJEMBE: {
+        "take_width":1,
     }
 }
 class Trader:
@@ -404,7 +421,7 @@ class Trader:
                  ) -> List[(List[Order], int)]: #returns a list of all possible arbs with the PnL from those Arbs.
         
         #basket_1 vs individual components, 6 Croissants, 3 Jams, 1 Djembe
-        
+        if Product.PICNIC_BASKET1 in self.params and Product.PICNIC_BASKET1 in state.order_depths:
         return 
     def clear_arb(self,
                   buySellOrderVolume: dict[(int,int)],
