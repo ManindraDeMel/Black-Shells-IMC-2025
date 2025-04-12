@@ -411,17 +411,42 @@ class Trader:
         return orders, buy_order_volume, sell_order_volume
 
     def find_arb(self,
-                 constituents: List[Product],
+                 constituents: Dict[str, int], #each constituent product and the amount, recipe for making the basket
                  basket: str,
-                 order_depth: OrderDepth,
+                 order_depth_basket: OrderDepth,
+                 order_depth_constituents: Dict[str, OrderDepth], #keys are the constituent products, values are the  
                  position_basket: int,
-                 positions_constituent: dict[int], #use a dictionary?
+                 positions_constituent: dict[str, int], #use a dictionary?
                  min_arb_width: int = 0,
                  
                  ) -> List[(List[Order], int)]: #returns a list of all possible arbs with the PnL from those Arbs.
-        
-        #basket_1 vs individual components, 6 Croissants, 3 Jams, 1 Djembe
-        if Product.PICNIC_BASKET1 in self.params and Product.PICNIC_BASKET1 in state.order_depths:
+        buy_quantity_basket = self.LIMIT[basket] - position_basket
+        sell_quantity_basket = self.LIMIT[basket] + position_basket
+        constituents_buy_sell_dict = {product: (self.LIMIT[product] - positions_constituent[product],
+                                                                             self.LIMIT[product] + positions_constituent[product]) for product in positions_constituent.keys() }
+        #buy basket and sell constituents if basket cost < sum constituents
+        #RIGHT NOW I AM ONLY LOOKING AT THE BEST BID, THAT IS THERE NEEDS TO BE AT LEAST ENOUGH OF THE BEST BID OF EACH CONSTITUENT TO FORM A BASKET
+        #LATER CAN BE UPDATED TO LOOK UP THE ORDER BOOK
+        orders: List[Order] = []
+        if len(order_depth_basket.sell_orders) > 0 and (all(map(lambda x : (len(x.sell_orders) > 0), order_depth_constituents.values()))):
+            best_ask_basket = min(order_depth_basket.sell_orders.keys())
+            best_ask_basket_vol = -1* order_depth_basket[best_ask_basket]
+            best_bids = {item: (max(order_depth_item.buy_orders)) for item, order_depth_item in order_depth_constituents.items()}
+            best_bid_volumes = {constituent: order_depth_item[best_bids[constituent]] for constituent, order_depth_item in order_depth_constituents.items()}
+            baskets_that_can_be_made = 1 #IMPLEMENT THIS
+            arbs = []
+            if all([best_bid_volumes[constituent] >= constituents[constituent] for constituent in best_bid_volumes.keys()]):# have enough bids to form a basket for each constituent
+                #CHECK IF ARB
+                arb_pnl = sum([best_bids[constituent]*constituents[constituent] for constituent in constituents.keys()]) - best_ask_basket
+                if(arb_pnl > 0):
+                    #right now just doing one arb, but implement as many if possible later with baskets_that_can_be_made.
+                    orders.append(Order(basket, best_ask_basket, baskets_that_can_be_made)) # UPDATE QUANTITY
+                    orders.extend([Order(constituent, best_bids[constituent], -1*constituents[constituent]*baskets_that_can_be_made) for constituent in constituents.keys()])
+                    buy_quantity_basket += baskets_that_can_be_made
+                    for constituent in constituents.keys():
+                        constituents_buy_sell_dict += -1*constituents[constituent]*baskets_that_can_be_made 
+                    arbs.append(,arb_pnl) #SO CONFUSED WHAT TO RETURN
+
         return 
     def clear_arb(self,
                   buySellOrderVolume: dict[(int,int)],
