@@ -429,26 +429,51 @@ class Trader:
         #LATER CAN BE UPDATED TO LOOK UP THE ORDER BOOK
         #need to worry about position limits too
         orders: List[Order] = []
-        if len(order_depth_basket.sell_orders) > 0 and (all(map(lambda x : (len(x.sell_orders) > 0), order_depth_constituents.values()))):
+        # Check for buy basket, sell constituents arbitrage
+        arb_opportunities = []
+        if len(order_depth_basket.sell_orders) > 0 and all(len(depth.buy_orders) > 0 for depth in order_depth_constituents.values()):
+            # Best ask price for the basket
             best_ask_basket = min(order_depth_basket.sell_orders.keys())
-            best_ask_basket_vol = -1* order_depth_basket[best_ask_basket]
-            best_bids = {item: (max(order_depth_item.buy_orders)) for item, order_depth_item in order_depth_constituents.items()}
-            best_bid_volumes = {constituent: order_depth_item[best_bids[constituent]] for constituent, order_depth_item in order_depth_constituents.items()}
-            baskets_that_can_be_made = 1 #IMPLEMENT THIS
-            arbs = []
-            if all([best_bid_volumes[constituent] >= constituents[constituent] for constituent in best_bid_volumes.keys()]):# have enough bids to form a basket for each constituent
-                #CHECK IF ARB
-                arb_pnl = sum([best_bids[constituent]*constituents[constituent] for constituent in constituents.keys()]) - best_ask_basket
-                if(arb_pnl > 0):
-                    #right now just doing one arb, but implement as many if possible later with baskets_that_can_be_made.
-                    orders.append(Order(basket, best_ask_basket, baskets_that_can_be_made)) # UPDATE QUANTITY
-                    orders.extend([Order(constituent, best_bids[constituent], -1*constituents[constituent]*baskets_that_can_be_made) for constituent in constituents.keys()])
-                    buy_quantity_basket += baskets_that_can_be_made
+            best_ask_basket_vol = -1 * order_depth_basket.sell_orders[best_ask_basket]
+            
+            # Best bid prices and volumes for constituents
+            best_bids = {constituent: max(depth.buy_orders.keys()) for constituent, depth in order_depth_constituents.items()}
+            best_bid_volumes = {constituent: order_depth_constituents[constituent].buy_orders[best_bids[constituent]] 
+                            for constituent in constituents.keys()}
+            
+            # Check if there's enough volume to form at least one basket
+            max_baskets = min([
+                best_ask_basket_vol,  # Maximum baskets we can buy
+                min([best_bid_volumes[constituent] // constituents[constituent] for constituent in constituents.keys()])  # Max baskets we can sell constituents for
+            ])
+            
+            # Check position limits
+            max_baskets = min(max_baskets, self.LIMIT[basket] - position_basket)
+            for constituent in constituents.keys():
+                max_baskets = min(max_baskets, (self.LIMIT[constituent] + positions_constituent[constituent]) // constituents[constituent])
+            
+            if max_baskets > 0:
+                # Calculate arbitrage PnL
+                constituent_sell_value = sum([best_bids[constituent] * constituents[constituent] for constituent in constituents.keys()])
+                basket_buy_cost = best_ask_basket
+                arb_pnl = constituent_sell_value - basket_buy_cost
+                
+                # If profitable arbitrage opportunity exists
+                if arb_pnl > min_arb_width:
+                    # Create orders for this arbitrage
+                    arb_orders = []
+                    
+                    # Order to buy the basket
+                    arb_orders.append(Order(basket, best_ask_basket, max_baskets))
+                    
+                    # Orders to sell the constituents
                     for constituent in constituents.keys():
-                        constituents_buy_sell_dict += -1*constituents[constituent]*baskets_that_can_be_made 
-                    arbs.append(,arb_pnl) #SO CONFUSED WHAT TO RETURN
-
-        return 
+                        arb_orders.append(Order(constituent, best_bids[constituent], -1 * constituents[constituent] * max_baskets))
+                    # Add this arbitrage opportunity to our list
+                    arb_opportunities.append((arb_orders, arb_pnl * max_baskets))  # Total PnL for all baskets
+            #TO IMPLEMENT OTHER WAY, BUY CONSTITUENTS, SELL BASKETS if sum constituents < basket cost
+            
+            return arb_opportunities
     def clear_arb(self,
                   buySellOrderVolume: dict[(int,int)],
                   order_depth: OrderDepth,
