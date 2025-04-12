@@ -427,6 +427,7 @@ class Trader:
         #buy basket and sell constituents if basket cost < sum constituents
         #RIGHT NOW I AM ONLY LOOKING AT THE BEST BID, THAT IS THERE NEEDS TO BE AT LEAST ENOUGH OF THE BEST BID OF EACH CONSTITUENT TO FORM A BASKET
         #LATER CAN BE UPDATED TO LOOK UP THE ORDER BOOK
+        #need to worry about position limits too
         orders: List[Order] = []
         if len(order_depth_basket.sell_orders) > 0 and (all(map(lambda x : (len(x.sell_orders) > 0), order_depth_constituents.values()))):
             best_ask_basket = min(order_depth_basket.sell_orders.keys())
