@@ -129,9 +129,11 @@ class Product:
     KELP = "KELP"
     RAINFORST_RESIN = "RAINFOREST_RESIN"
     SQUID_INK = "SQUID_INK"
-    CROISSANT = "CROISSANT"
-    JAM = "JAM"
+    CROISSANTS = "CROISSANTS"
+    JAMS = "JAMS"
     DJEMBE = "DJEMBE"
+    PICNIC_BASKET1 = "PICNIC_BASKET1",
+    PICNIC_BASKET2 = "PICNIC_BASKET2"
 
 parameters = {
     Product.RAINFORST_RESIN:{
@@ -173,7 +175,7 @@ class Trader:
         if params is None:
             params = parameters
         self.params = params 
-        self.LIMIT = {Product.RAINFORST_RESIN: 50, Product.KELP: 50, Product.SQUID_INK: 50}
+        self.LIMIT = {Product.RAINFORST_RESIN: 50, Product.KELP: 50, Product.SQUID_INK: 50, Product.CROISSANTS: 250, Product.JAMS: 350, Product.DJEMBE: 60, Product.PICNIC_BASKET1: 60, Product.PICNIC_BASKET2: 100}
 
     def take_best_orders(self,
                          product: str,
@@ -399,8 +401,11 @@ class Trader:
                  positions_constituent: dict[int], #use a dictionary?
                  min_arb_width: int = 0,
                  
-                 ) -> (dict[(int,int)]): #returns a buy order volume and sell order volume for each product and the overall basket, which can be used to clear
-        return NotImplementedError
+                 ) -> List[(List[Order], int)]: #returns a list of all possible arbs with the PnL from those Arbs.
+        
+        #basket_1 vs individual components, 6 Croissants, 3 Jams, 1 Djembe
+        
+        return 
     def clear_arb(self,
                   buySellOrderVolume: dict[(int,int)],
                   order_depth: OrderDepth,
