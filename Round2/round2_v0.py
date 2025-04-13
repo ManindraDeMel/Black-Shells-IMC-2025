@@ -426,7 +426,7 @@ class Trader:
                                                                              self.LIMIT[product] + positions_constituent[product]) for product in positions_constituent.keys() }
         #buy basket and sell constituents if basket cost < sum constituents
         #RIGHT NOW I AM ONLY LOOKING AT THE BEST BID, THAT IS THERE NEEDS TO BE AT LEAST ENOUGH OF THE BEST BID OF EACH CONSTITUENT TO FORM A BASKET
-        #LATER CAN BE UPDATED TO LOOK UP THE ORDER BOOK
+        #LATER CAN BE UPDATED TO LOOK UP THE ORDER BOOK, implement min arb width?
         #need to worry about position limits too
         orders: List[Order] = []
         # Check for buy basket, sell constituents arbitrage
@@ -472,10 +472,88 @@ class Trader:
                     # Add this arbitrage opportunity to our list
                     arb_opportunities.append((arb_orders, arb_pnl * max_baskets))  # Total PnL for all baskets
             #TO IMPLEMENT OTHER WAY, BUY CONSTITUENTS, SELL BASKETS if sum constituents < basket cost
+
+        if len(order_depth_basket.buy_orders) > 0 and all(len(depth.sell_orders) > 0 for depth in order_depth_constituents.values()):
+            # Best ask price for the basket
+            best_bid_basket = min(order_depth_basket.buy_orders.keys())
+            best_bid_basket_vol =  order_depth_basket.buy_orders[best_bid_basket]
+            
+            # Best bid prices and volumes for constituents
+            best_asks = {constituent: max(depth.sell_orders.keys()) for constituent, depth in order_depth_constituents.items()}
+            best_ask_volumes = {constituent: -1* order_depth_constituents[constituent].sell_orders[best_asks[constituent]] 
+                            for constituent in constituents.keys()}
+            
+            # Check if there's enough volume to form at least one basket
+            max_baskets = min([
+                best_bid_basket_vol,  # Maximum baskets we can buy
+                min([best_ask_volumes[constituent] // constituents[constituent] for constituent in constituents.keys()])  # Max baskets we can sell constituents for
+            ])
+            
+            # Check position limits
+            max_baskets = min(max_baskets, self.LIMIT[basket] + position_basket) # since selling basket
+            for constituent in constituents.keys():
+                max_baskets = min(max_baskets, (self.LIMIT[constituent] - positions_constituent[constituent]) // constituents[constituent])
+            
+            if max_baskets > 0:
+                # Calculate arbitrage PnL
+                constituent_buy_value = sum([best_asks[constituent] * constituents[constituent] for constituent in constituents.keys()])
+                basket_sell_cost = best_bid_basket
+                arb_pnl = basket_sell_cost - constituent_buy_value
+                
+                # If profitable arbitrage opportunity exists
+                if arb_pnl > min_arb_width:
+                    # Create orders for this arbitrage
+                    arb_orders = []
+                    
+                    # Order to buy the basket
+                    arb_orders.append(Order(basket, best_bid_basket, -1* max_baskets))
+                    
+                    # Orders to sell the constituents
+                    for constituent in constituents.keys():
+                        arb_orders.append(Order(constituent, best_asks[constituent], constituents[constituent] * max_baskets))
+                    # Add this arbitrage opportunity to our list
+                    arb_opportunities.append((arb_orders, arb_pnl * max_baskets))  # Total PnL for all baskets
+            #TO IMPLEMENT OTHER WAY, BUY CONSTITUENTS, SELL BASKETS if sum constituents < basket cost
             
             return arb_opportunities
+    def take_best_arbs(self,
+                 constituents: Dict[str, int], #each constituent product and the amount, recipe for making the basket
+                 basket: str,
+                 order_depth_basket: OrderDepth,
+                 order_depth_constituents: Dict[str, OrderDepth], #keys are the constituent products, values are the  
+                 position_basket: int,
+                 positions_constituent: Dict[str, int], #use a dictionary?
+                 arb_opportunities: List[(List[Order],int)],
+                 min_arb_width: int = 0,)-> List[Order]: #add in buy_sell _positions 
+        orders: List[Order] = []
+        if len(arb_opportunities) > 0:
+            arb_opportunities = sorted(arb_opportunities,key=lambda x: x[1],reverse=True) #sort by PnL 
+            for arb in arb_opportunities:
+                can_complete_arb = True 
+                for outstanding_order in arb[0]:
+                    order_price = outstanding_order.price 
+                    order_quantity = outstanding_order.quantity 
+                    order_symbol = outstanding_order.symbol 
+                    if order_symbol in constituents.keys(): # if it is a constituent 
+                        if order_quantity < 0: # sell order
+                            if order_depth_constituents[order_symbol].buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                                can_complete_arb = False
+                        else: #buy order
+                            if order_depth_constituents[order_symbol].sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                                can_complete_arb = False
+                    else: 
+                        if order_quantity < 0: # sell order
+                            if order_depth_basket.buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                                can_complete_arb = False
+                        else: #buy order
+                            if order_depth_basket.sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                                can_complete_arb = False
+            if(can_complete_arb):# process the arb
+                orders.extend(arb[0])
+        return orders
+
     def clear_arb(self,
-                  buySellOrderVolume: dict[(int,int)],
+                  buySellOrderVolume: Dict[(int,int)],
                   order_depth: OrderDepth,
                   position_basket: int,
                   positions_constituent: dict[int],
