@@ -127,16 +127,16 @@ logger = Logger()
 
 class Product:
     KELP = "KELP"
-    RAINFORST_RESIN = "RAINFOREST_RESIN"
+    RAINFOREST_RESIN = "RAINFOREST_RESIN"  # Fixed spelling
     SQUID_INK = "SQUID_INK"
     CROISSANTS = "CROISSANTS"
     JAMS = "JAMS"
     DJEMBE = "DJEMBE"
-    PICNIC_BASKET1 = "PICNIC_BASKET1",
+    PICNIC_BASKET1 = "PICNIC_BASKET1"  # Removed trailing comma
     PICNIC_BASKET2 = "PICNIC_BASKET2"
 
 parameters = {
-    Product.RAINFORST_RESIN:{
+    Product.RAINFOREST_RESIN:{  # Fixed spelling
         "fair_value": 10000,
         "take_width": 1,
         "clear_width": 0,
@@ -192,7 +192,7 @@ class Trader:
         if params is None:
             params = parameters
         self.params = params 
-        self.LIMIT = {Product.RAINFORST_RESIN: 50, Product.KELP: 50, Product.SQUID_INK: 50, Product.CROISSANTS: 250, Product.JAMS: 350, Product.DJEMBE: 60, Product.PICNIC_BASKET1: 60, Product.PICNIC_BASKET2: 100}
+        self.LIMIT = {Product.RAINFOREST_RESIN: 50, Product.KELP: 50, Product.SQUID_INK: 50, Product.CROISSANTS: 250, Product.JAMS: 350, Product.DJEMBE: 60, Product.PICNIC_BASKET1: 60, Product.PICNIC_BASKET2: 100}
 
     def take_best_orders(self,
                          product: str,
@@ -211,28 +211,29 @@ class Trader:
             best_ask = min(order_depth.sell_orders.keys())
             best_ask_volume = -1 *order_depth.sell_orders[best_ask]
 
-        if not prevent_adverse or abs(best_ask_volume) < adverse_volume: #if we're not only looking at large MMs or if this trade was not from a MM (we shouldn't lift the MMs)
-            if best_ask < fair_value - take_width:
-                quantity = min(best_ask_volume, position_limit - position)
-                if quantity >0 :
-                    orders.append(Order(product, best_ask, quantity))
-                    buy_order_volume += quantity
-                    order_depth.sell_orders[best_ask] += quantity # so we nullify that trade in the book since we've already lifted it
-                    if order_depth.sell_orders[best_ask] == 0:
-                        del order_depth.sell_orders[best_ask] #if we filled the trade (which means it was within our position limit), delete it
+            if not prevent_adverse or abs(best_ask_volume) < adverse_volume: #if we're not only looking at large MMs or if this trade was not from a MM (we shouldn't lift the MMs)
+                if best_ask < fair_value - take_width:
+                    quantity = min(best_ask_volume, position_limit - position)
+                    if quantity >0 :
+                        orders.append(Order(product, best_ask, quantity))
+                        buy_order_volume += quantity
+                        order_depth.sell_orders[best_ask] += quantity # so we nullify that trade in the book since we've already lifted it
+                        if order_depth.sell_orders[best_ask] == 0:
+                            del order_depth.sell_orders[best_ask] #if we filled the trade (which means it was within our position limit), delete it
         #if anyone is willing to buy for more than the fair value, hit them and update our sell quantity
         if(len(order_depth.buy_orders) != 0 ):
             best_bid = max(order_depth.buy_orders.keys())
             best_bid_volume = order_depth.buy_orders[best_bid]
-        if not prevent_adverse or abs(best_bid_volume) < adverse_volume:
-            if best_bid > fair_value + take_width:
-                quantity = min(best_bid_volume, position_limit + position) #since we are selling, our amount that can be sold is pos - (-pos limit)
-                if quantity > 0:
-                    orders.append(Order(product,best_bid,-1*quantity))
-                    sell_order_volume += quantity 
-                    order_depth.buy_orders[best_bid] -= quantity 
-                    if order_depth.buy_orders[best_bid] == 0:
-                        del order_depth.buy_orders[best_bid]
+            
+            if not prevent_adverse or abs(best_bid_volume) < adverse_volume:
+                if best_bid > fair_value + take_width:
+                    quantity = min(best_bid_volume, position_limit + position) #since we are selling, our amount that can be sold is pos - (-pos limit)
+                    if quantity > 0:
+                        orders.append(Order(product,best_bid,-1*quantity))
+                        sell_order_volume += quantity 
+                        order_depth.buy_orders[best_bid] -= quantity 
+                        if order_depth.buy_orders[best_bid] == 0:
+                            del order_depth.buy_orders[best_bid]
         return buy_order_volume, sell_order_volume
     
     def market_make(self,
@@ -261,7 +262,7 @@ class Trader:
             order_depth: OrderDepth,
             position: int,
             buy_order_volume: int,
-            sell_order_volume: int,)-> List[Order]:
+            sell_order_volume: int,)-> (int, int):
         position_after_take = position + buy_order_volume - sell_order_volume
         fair_for_bid = round(fair_value - width)
         fair_for_ask =round(fair_value + width)
@@ -283,6 +284,7 @@ class Trader:
                 orders.append(Order(product,fair_for_bid, abs(sent_quantity)))
                 buy_order_volume += abs(sent_quantity)
         return buy_order_volume, sell_order_volume
+    
     def kelp_fair_value(self, order_depth: OrderDepth, traderObject) -> float:
         if(len(order_depth.sell_orders) != 0 and len(order_depth.buy_orders) !=  0):
             best_ask = min(order_depth.sell_orders.keys())
@@ -313,6 +315,7 @@ class Trader:
             traderObject["kelp_last_price"] = mmmid_price
             return fair 
         return None 
+    
     def take_orders( # we can repeatedly take orders with this method until our position limits are hit or there are no more favourable trades in the market
             self,
             product: str,
@@ -338,6 +341,7 @@ class Trader:
             adverse_volume,
         )
         return orders, buy_order_volume,sell_order_volume
+    
     def clear_orders( # clear the orders after each take with an empty order list
             self,
             product:str,
@@ -360,6 +364,7 @@ class Trader:
             sell_order_volume,
         )
         return orders,buy_order_volume, sell_order_volume
+    
     def make_orders( #execute market making strategy
             self,
             product:str,
@@ -423,7 +428,7 @@ class Trader:
         buy_quantity_basket = self.LIMIT[basket] - position_basket
         sell_quantity_basket = self.LIMIT[basket] + position_basket
         constituents_buy_sell_dict = {product: (self.LIMIT[product] - positions_constituent[product],
-                                                                             self.LIMIT[product] + positions_constituent[product]) for product in positions_constituent.keys() }
+                                                self.LIMIT[product] + positions_constituent[product]) for product in positions_constituent.keys() }
         #buy basket and sell constituents if basket cost < sum constituents
         #RIGHT NOW I AM ONLY LOOKING AT THE BEST BID, THAT IS THERE NEEDS TO BE AT LEAST ENOUGH OF THE BEST BID OF EACH CONSTITUENT TO FORM A BASKET
         #LATER CAN BE UPDATED TO LOOK UP THE ORDER BOOK, implement min arb width?
@@ -474,19 +479,19 @@ class Trader:
             #TO IMPLEMENT OTHER WAY, BUY CONSTITUENTS, SELL BASKETS if sum constituents < basket cost
 
         if len(order_depth_basket.buy_orders) > 0 and all(len(depth.sell_orders) > 0 for depth in order_depth_constituents.values()):
-            # Best ask price for the basket
-            best_bid_basket = min(order_depth_basket.buy_orders.keys())
-            best_bid_basket_vol =  order_depth_basket.buy_orders[best_bid_basket]
+            # Best bid price for the basket
+            best_bid_basket = max(order_depth_basket.buy_orders.keys())  # Fixed from min to max
+            best_bid_basket_vol = order_depth_basket.buy_orders[best_bid_basket]
             
-            # Best bid prices and volumes for constituents
-            best_asks = {constituent: max(depth.sell_orders.keys()) for constituent, depth in order_depth_constituents.items()}
+            # Best ask prices and volumes for constituents
+            best_asks = {constituent: min(depth.sell_orders.keys()) for constituent, depth in order_depth_constituents.items()}  # Changed from max to min
             best_ask_volumes = {constituent: -1* order_depth_constituents[constituent].sell_orders[best_asks[constituent]] 
                             for constituent in constituents.keys()}
             
             # Check if there's enough volume to form at least one basket
             max_baskets = min([
-                best_bid_basket_vol,  # Maximum baskets we can buy
-                min([best_ask_volumes[constituent] // constituents[constituent] for constituent in constituents.keys()])  # Max baskets we can sell constituents for
+                best_bid_basket_vol,  # Maximum baskets we can sell
+                min([best_ask_volumes[constituent] // constituents[constituent] for constituent in constituents.keys()])  # Max baskets we can buy constituents for
             ])
             
             # Check position limits
@@ -505,17 +510,17 @@ class Trader:
                     # Create orders for this arbitrage
                     arb_orders = []
                     
-                    # Order to buy the basket
+                    # Order to sell the basket
                     arb_orders.append(Order(basket, best_bid_basket, -1* max_baskets))
                     
-                    # Orders to sell the constituents
+                    # Orders to buy the constituents
                     for constituent in constituents.keys():
                         arb_orders.append(Order(constituent, best_asks[constituent], constituents[constituent] * max_baskets))
                     # Add this arbitrage opportunity to our list
                     arb_opportunities.append((arb_orders, arb_pnl * max_baskets))  # Total PnL for all baskets
-            #TO IMPLEMENT OTHER WAY, BUY CONSTITUENTS, SELL BASKETS if sum constituents < basket cost
             
-            return arb_opportunities #LATER RETURN THE QUANTITIES OF EACH INGREDIENT WE UPDATE, CAN USE THIS TO UPDATE POSITION LIMITS ETC
+        return arb_opportunities #LATER RETURN THE QUANTITIES OF EACH INGREDIENT WE UPDATE, CAN USE THIS TO UPDATE POSITION LIMITS ETC
+    
     def take_best_arbs(self,
                  constituents: Dict[str, int], #each constituent product and the amount, recipe for making the basket
                  basket: str,
@@ -529,7 +534,7 @@ class Trader:
         '''Still need to track and return position sizes for each constituent and basket. Update position after each constituent is taken or not
         '''
         if len(arb_opportunities) > 0:
-            arb_opportunities = sorted(arb_opportunities,key=lambda x: x[1],reverse=True) #sort by PnL 
+            arb_opportunities = sorted(arb_opportunities, key=lambda x: x[1], reverse=True) #sort by PnL 
             for arb in arb_opportunities:
                 can_complete_arb = True 
                 for outstanding_order in arb[0]:
@@ -537,25 +542,37 @@ class Trader:
                     order_quantity = outstanding_order.quantity 
                     order_symbol = outstanding_order.symbol 
                     if order_symbol in constituents.keys(): # if it is a constituent 
-                        if abs(positions_constituent[order_symbol] + order_symbol) > self.LIMIT[order_symbol]:
-                                can_complete_arb = False
+                        if abs(positions_constituent[order_symbol] + order_quantity) > self.LIMIT[order_symbol]:  # Fixed: was adding symbol instead of quantity
+                            can_complete_arb = False
                         if order_quantity < 0: # sell order
-                            if order_depth_constituents[order_symbol].buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
-                                can_complete_arb = False
-                            
-                        else: #buy order
-                            if order_depth_constituents[order_symbol].sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
-                                can_complete_arb = False
-                    else: 
-                        if abs(position_basket + order_symbol) > self.LIMIT[order_symbol]:
-                                can_complete_arb = False
-                        if order_quantity < 0: # sell order
-                            if order_depth_basket.buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                            if order_symbol in order_depth_constituents and order_price in order_depth_constituents[order_symbol].buy_orders:
+                                if order_depth_constituents[order_symbol].buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                                    can_complete_arb = False
+                            else:
                                 can_complete_arb = False
                         else: #buy order
-                            if order_depth_basket.sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                            if order_symbol in order_depth_constituents and order_price in order_depth_constituents[order_symbol].sell_orders:
+                                if order_depth_constituents[order_symbol].sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                                    can_complete_arb = False
+                            else:
                                 can_complete_arb = False
-                if(can_complete_arb):# process the arb
+                    else: # It's a basket
+                        if abs(position_basket + order_quantity) > self.LIMIT[basket]:  # Fixed: was adding symbol instead of quantity
+                            can_complete_arb = False
+                        if order_quantity < 0: # sell order
+                            if order_price in order_depth_basket.buy_orders:
+                                if order_depth_basket.buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                                    can_complete_arb = False
+                            else:
+                                can_complete_arb = False
+                        else: #buy order
+                            if order_price in order_depth_basket.sell_orders:
+                                if order_depth_basket.sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                                    can_complete_arb = False
+                            else:
+                                can_complete_arb = False
+                
+                if can_complete_arb:  # Process the arb
                     orders.extend(arb[0])
                     for taken_order in arb[0]:
                         order_symbol = taken_order.symbol 
@@ -563,18 +580,20 @@ class Trader:
                         order_quantity = taken_order.quantity
                         if order_symbol in constituents.keys():
                             positions_constituent[order_symbol] += order_quantity
-                            if order_quantity > 0:
-                                order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity 
-                            else:
-                                order_depth_constituents[order_symbol].buy_orders[order_price] += order_quantity
-                            
-                        else:
+                            if order_quantity > 0:  # Buying constituent
+                                if order_price in order_depth_constituents[order_symbol].sell_orders:
+                                    order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity
+                            else:  # Selling constituent
+                                if order_price in order_depth_constituents[order_symbol].buy_orders:
+                                    order_depth_constituents[order_symbol].buy_orders[order_price] += order_quantity
+                        else:  # Basket
                             position_basket += order_quantity
-                            if order_quantity > 0:
-                                order_depth_basket.sell_orders[order_price] += order_quantity 
-                            else:
-                                order_depth_basket.buy_orders[order_price] += order_quantity
-                            
+                            if order_quantity > 0:  # Buying basket
+                                if order_price in order_depth_basket.sell_orders:
+                                    order_depth_basket.sell_orders[order_price] += order_quantity
+                            else:  # Selling basket
+                                if order_price in order_depth_basket.buy_orders:
+                                    order_depth_basket.buy_orders[order_price] += order_quantity
             
         return orders, position_basket, positions_constituent
 
@@ -586,6 +605,7 @@ class Trader:
                   clear_width: int,
                   fair_values: dict[int],) -> (List[Order], dict[int]):
         return NotImplementedError
+    
     def run(self, state: TradingState):
         logger.print("traderData: " + state.traderData)
         logger.print("Observations: " + str(state.observations))
@@ -594,144 +614,155 @@ class Trader:
             traderObject = jsonpickle.decode(state.traderData)
 
         # Initialize the result dict with empty lists for all products
-        result = {Product.PICNIC_BASKET1: [], Product.PICNIC_BASKET2: [], Product.CROISSANTS: [], Product.DJEMBE: [], Product.JAMS: []}
-        if Product.RAINFORST_RESIN in self.params and Product.RAINFORST_RESIN in state.order_depths:
-            resin_position = (
-                state.position[Product.RAINFORST_RESIN]
-                if Product.RAINFORST_RESIN in state.position 
-                else 0 
-            )
-        resin_take_orders, buy_order_volume, sell_order_volume = (
-            self.take_orders(
-                Product.RAINFORST_RESIN, 
-                state.order_depths[Product.RAINFORST_RESIN],
-                self.params[Product.RAINFORST_RESIN]["fair_value"],
-                self.params[Product.RAINFORST_RESIN]["take_width"],
-                resin_position
-            )
-        )
-        resin_clear_orders, buy_order_volume, sell_order_volume = (
-            self.clear_orders(
-                Product.RAINFORST_RESIN,
-                state.order_depths[Product.RAINFORST_RESIN],
-                self.params[Product.RAINFORST_RESIN]["fair_value"],
-                self.params[Product.RAINFORST_RESIN]["clear_width"],
-                resin_position,
-                buy_order_volume,
-                sell_order_volume,
-            )
-        )
-        resin_make_orders, _,_ = self.make_orders(
-            Product.RAINFORST_RESIN,
-                state.order_depths[Product.RAINFORST_RESIN],
-                self.params[Product.RAINFORST_RESIN]["fair_value"],
-                resin_position,
-                buy_order_volume,
-                sell_order_volume,
-                self.params[Product.RAINFORST_RESIN]["disregard_edge"],
-                self.params[Product.RAINFORST_RESIN]["join_edge"],
-                self.params[Product.RAINFORST_RESIN]["default_edge"],
-        )
-        result[Product.RAINFORST_RESIN] = (
-            resin_take_orders + resin_clear_orders + resin_make_orders # take then clear then make
-        )
+        result = {Product.PICNIC_BASKET1: [], Product.PICNIC_BASKET2: [], Product.CROISSANTS: [], Product.DJEMBE: [], Product.JAMS: [], Product.RAINFOREST_RESIN: [], Product.KELP: [], Product.SQUID_INK: []}
 
-        if Product.KELP in self.params and Product.KELP in state.order_depths:
-            kelp_position = (
-                state.position[Product.KELP]
-                if Product.KELP in state.position
-                else 0
-            )
-            kelp_fair_value = self.kelp_fair_value(
-                state.order_depths[Product.KELP], traderObject
-            )
-            kelp_take_orders, buy_order_volume, sell_order_volume = (
+        # Process RAINFOREST_RESIN
+        if Product.RAINFOREST_RESIN in state.order_depths:
+            resin_position = state.position.get(Product.RAINFOREST_RESIN, 0)
+            
+            resin_take_orders, buy_order_volume, sell_order_volume = (
                 self.take_orders(
-                    Product.KELP,
-                    state.order_depths[Product.KELP],
-                    kelp_fair_value,
-                    self.params[Product.KELP]["take_width"],
-                    kelp_position,
-                    self.params[Product.KELP]["prevent_adverse"],
-                    self.params[Product.KELP]["adverse_volume"],
+                    Product.RAINFOREST_RESIN, 
+                    state.order_depths[Product.RAINFOREST_RESIN],
+                    self.params[Product.RAINFOREST_RESIN]["fair_value"],
+                    self.params[Product.RAINFOREST_RESIN]["take_width"],
+                    resin_position
                 )
             )
-            kelp_clear_orders, buy_order_volume, sell_order_volume = (
+            
+            resin_clear_orders, buy_order_volume, sell_order_volume = (
                 self.clear_orders(
-                    Product.KELP,
-                    state.order_depths[Product.KELP],
-                    kelp_fair_value,
-                    self.params[Product.KELP]["clear_width"],
-                    kelp_position,
+                    Product.RAINFOREST_RESIN,
+                    state.order_depths[Product.RAINFOREST_RESIN],
+                    self.params[Product.RAINFOREST_RESIN]["fair_value"],
+                    self.params[Product.RAINFOREST_RESIN]["clear_width"],
+                    resin_position,
                     buy_order_volume,
                     sell_order_volume,
                 )
             )
-            kelp_make_orders, _, _ = self.make_orders(
-                Product.KELP,
-                state.order_depths[Product.KELP],
-                kelp_fair_value,
-                kelp_position,
+            
+            resin_make_orders, _, _ = self.make_orders(
+                Product.RAINFOREST_RESIN,
+                state.order_depths[Product.RAINFOREST_RESIN],
+                self.params[Product.RAINFOREST_RESIN]["fair_value"],
+                resin_position,
                 buy_order_volume,
                 sell_order_volume,
-                self.params[Product.KELP]["disregard_edge"],
-                self.params[Product.KELP]["join_edge"],
-                self.params[Product.KELP]["default_edge"],
+                self.params[Product.RAINFOREST_RESIN]["disregard_edge"],
+                self.params[Product.RAINFOREST_RESIN]["join_edge"],
+                self.params[Product.RAINFOREST_RESIN]["default_edge"],
             )
-            result[Product.KELP] = ( kelp_take_orders + kelp_clear_orders + kelp_make_orders)
-        result[Product.SQUID_INK] = []
-        #ADD BASKETS + Components
-        if Product.PICNIC_BASKET1 in self.params and Product.PICNIC_BASKET1 in state.order_depths:
-            basket1_position = (
-                state.position[Product.PICNIC_BASKET1] if Product.PICNIC_BASKET1 in state.position else 0 
+            
+            result[Product.RAINFOREST_RESIN] = resin_take_orders + resin_clear_orders + resin_make_orders
+
+        # Process KELP
+        if Product.KELP in state.order_depths:
+            kelp_position = state.position.get(Product.KELP, 0)
+            
+            kelp_fair_value = self.kelp_fair_value(
+                state.order_depths[Product.KELP], traderObject
             )
-        if Product.PICNIC_BASKET2 in self.params and Product.PICNIC_BASKET2 in state.order_depths:
-            basket2_position = (
-                state.position[Product.PICNIC_BASKET2] if Product.PICNIC_BASKET2 in state.position else 0 
-            )
-        if Product.CROISSANTS in self.params and Product.CROISSANTS in state.order_depths:
-            croissants_position = (
-                state.position[Product.CROISSANTS] if Product.CROISSANTS in state.position else 0 
-            )
-        if Product.DJEMBE in self.params and Product.DJEMBE in state.order_depths:
-            djembe_position = (
-                state.position[Product.DJEMBE] if Product.DJEMBE in state.position else 0 
-            )
-        if Product.JAMS in self.params and Product.JAMS in state.order_depths:
-            jams_position = (
-                state.position[Product.JAMS] if Product.JAMS in state.position else 0 
-            )
-        basket1_constituents_arbs = self.find_arb({Product.CROISSANTS:6,Product.JAMS:3, Product.DJEMBE: 1},
-                                                  Product.PICNIC_BASKET1,
-                                                  state.order_depths[Product.PICNIC_BASKET1],
-                                                  {Product.CROISSANTS:state.order_depths[Product.CROISSANTS], Product.JAMS: state.order_depths[Product.JAMS], Product.DJEMBE: state.order_depths[Product.DJEMBE]},
-                                                  basket1_position,
-                                                  {Product.CROISSANTS:croissants_position,Product.JAMS:jams_position, Product.DJEMBE: djembe_position},
-                                                  0
-                                                  )
-        basket1_constituents_arb_take_orders, basket1_position, constituents_position_after_arb = self.take_best_arbs({Product.CROISSANTS:6,Product.JAMS:3, Product.DJEMBE: 1},
-                                                                   Product.PICNIC_BASKET1,
-                                                                   state.order_depths[Product.PICNIC_BASKET1],
-                                                                   {Product.CROISSANTS:state.order_depths[Product.CROISSANTS], Product.JAMS: state.order_depths[Product.JAMS], Product.DJEMBE: state.order_depths[Product.DJEMBE]},
-                                                                   basket1_position,
-                                                                   {Product.CROISSANTS:croissants_position,Product.JAMS:jams_position, Product.DJEMBE: djembe_position},
-                                                                   basket1_constituents_arbs,
-                                                                   0
-                                                                
+            
+            if kelp_fair_value is not None:  # Check to avoid errors when fair value calculation fails
+                kelp_take_orders, buy_order_volume, sell_order_volume = (
+                    self.take_orders(
+                        Product.KELP,
+                        state.order_depths[Product.KELP],
+                        kelp_fair_value,
+                        self.params[Product.KELP]["take_width"],
+                        kelp_position,
+                        self.params[Product.KELP]["prevent_adverse"],
+                        self.params[Product.KELP]["adverse_volume"],
+                    )
+                )
+                
+                kelp_clear_orders, buy_order_volume, sell_order_volume = (
+                    self.clear_orders(
+                        Product.KELP,
+                        state.order_depths[Product.KELP],
+                        kelp_fair_value,
+                        self.params[Product.KELP]["clear_width"],
+                        kelp_position,
+                        buy_order_volume,
+                        sell_order_volume,
+                    )
+                )
+                
+                kelp_make_orders, _, _ = self.make_orders(
+                    Product.KELP,
+                    state.order_depths[Product.KELP],
+                    kelp_fair_value,
+                    kelp_position,
+                    buy_order_volume,
+                    sell_order_volume,
+                    self.params[Product.KELP]["disregard_edge"],
+                    self.params[Product.KELP]["join_edge"],
+                    self.params[Product.KELP]["default_edge"],
+                )
+                
+                result[Product.KELP] = kelp_take_orders + kelp_clear_orders + kelp_make_orders
+
+        # Check if the basket and constituent products are available before processing
+        basket_products_available = (
+            Product.PICNIC_BASKET1 in state.order_depths and
+            Product.CROISSANTS in state.order_depths and
+            Product.JAMS in state.order_depths and
+            Product.DJEMBE in state.order_depths
         )
-        #make the orders in basket1_arbs
-        for taken_order in basket1_constituents_arb_take_orders:
-            order_symbol = taken_order.symbol
-            order_price = taken_order.price 
-            order_quantity = taken_order.price
-            result[order_symbol] += Order(order_symbol,order_price,order_quantity)
-
-
+        
+        if basket_products_available:
+            basket1_position = state.position.get(Product.PICNIC_BASKET1, 0)
+            croissants_position = state.position.get(Product.CROISSANTS, 0)
+            jams_position = state.position.get(Product.JAMS, 0)
+            djembe_position = state.position.get(Product.DJEMBE, 0)
+            
+            # Find arbitrage opportunities
+            basket1_constituents_arbs = self.find_arb(
+                {Product.CROISSANTS: 6, Product.JAMS: 3, Product.DJEMBE: 1},
+                Product.PICNIC_BASKET1,
+                state.order_depths[Product.PICNIC_BASKET1],
+                {
+                    Product.CROISSANTS: state.order_depths[Product.CROISSANTS], 
+                    Product.JAMS: state.order_depths[Product.JAMS], 
+                    Product.DJEMBE: state.order_depths[Product.DJEMBE]
+                },
+                basket1_position,
+                {
+                    Product.CROISSANTS: croissants_position,
+                    Product.JAMS: jams_position, 
+                    Product.DJEMBE: djembe_position
+                },
+                0
+            )
+            
+            # Take the best arbitrage opportunities
+            if basket1_constituents_arbs:
+                basket1_orders, updated_basket1_position, updated_constituent_positions = self.take_best_arbs(
+                    {Product.CROISSANTS: 6, Product.JAMS: 3, Product.DJEMBE: 1},
+                    Product.PICNIC_BASKET1,
+                    state.order_depths[Product.PICNIC_BASKET1],
+                    {
+                        Product.CROISSANTS: state.order_depths[Product.CROISSANTS], 
+                        Product.JAMS: state.order_depths[Product.JAMS], 
+                        Product.DJEMBE: state.order_depths[Product.DJEMBE]
+                    },
+                    basket1_position,
+                    {
+                        Product.CROISSANTS: croissants_position,
+                        Product.JAMS: jams_position, 
+                        Product.DJEMBE: djembe_position
+                    },
+                    basket1_constituents_arbs,
+                    0
+                )
+                
+                # Distribute the orders to the appropriate products
+                for order in basket1_orders:
+                    result[order.symbol].append(order)
         
         # We're not using conversions in this implementation
         conversions = 0
         traderData = jsonpickle.encode(traderObject)
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
-    
-    
