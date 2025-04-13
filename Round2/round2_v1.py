@@ -416,15 +416,14 @@ class Trader:
         return orders, buy_order_volume, sell_order_volume
 
     def find_arb(self,
-                 constituents: Dict[str, int], #each constituent product and the amount, recipe for making the basket
-                 basket: str,
-                 order_depth_basket: OrderDepth,
-                 order_depth_constituents: Dict[str, OrderDepth], #keys are the constituent products, values are the  
-                 position_basket: int,
-                 positions_constituent: dict[str, int], #use a dictionary?
-                 min_arb_width: int = 0,
-                 
-                 ) -> List[Tuple[List[Order], int]]: #returns a list of all possible arbs with the PnL from those Arbs.
+             constituents: Dict[str, int],  # each constituent product and the amount, recipe for making the basket
+             basket: str,
+             order_depth_basket: OrderDepth,
+             order_depth_constituents: Dict[str, OrderDepth],  # keys are the constituent products, values are the  
+             position_basket: int,
+             positions_constituent: dict[str, int],  # use a dictionary?
+             min_arb_width: int = 0,
+             ) -> List[Tuple[List[Order], int]]:  # returns a list of all possible arbs with the PnL from those Arbs.
         buy_quantity_basket = self.LIMIT[basket] - position_basket
         sell_quantity_basket = self.LIMIT[basket] + position_basket
         constituents_buy_sell_dict = {product: (self.LIMIT[product] - positions_constituent[product],
@@ -465,6 +464,7 @@ class Trader:
                 
                 # If profitable arbitrage opportunity exists
                 if arb_pnl > min_arb_width:
+                    logger.print(f"Found arbitrage opportunities")
                     # Create orders for this arbitrage
                     arb_orders = []
                     
@@ -507,6 +507,7 @@ class Trader:
                 
                 # If profitable arbitrage opportunity exists
                 if arb_pnl > min_arb_width:
+                    logger.print(f"Found arbitrage opportunities")
                     # Create orders for this arbitrage
                     arb_orders = []
                     
@@ -520,83 +521,107 @@ class Trader:
                     arb_opportunities.append((arb_orders, arb_pnl * max_baskets))  # Total PnL for all baskets
             
         return arb_opportunities #LATER RETURN THE QUANTITIES OF EACH INGREDIENT WE UPDATE, CAN USE THIS TO UPDATE POSITION LIMITS ETC
-    
+
     def take_best_arbs(self,
-                 constituents: Dict[str, int], #each constituent product and the amount, recipe for making the basket
-                 basket: str,
-                 order_depth_basket: OrderDepth,
-                 order_depth_constituents: Dict[str, OrderDepth], #keys are the constituent products, values are the  
-                 position_basket: int,
-                 positions_constituent: Dict[str, int], #use a dictionary?
-                 arb_opportunities: List[Tuple[List[Order],int]],
-                 min_arb_width: int = 0, )-> (List[Order],int, Dict[str,int]): #add in buy_sell _positions 
+                    constituents: Dict[str, int],  # each constituent product and the amount, recipe for making the basket
+                    basket: str,
+                    order_depth_basket: OrderDepth,
+                    order_depth_constituents: Dict[str, OrderDepth],  # keys are the constituent products, values are the  
+                    position_basket: int,
+                    positions_constituent: Dict[str, int],  # use a dictionary?
+                    arb_opportunities: List[Tuple[List[Order],int]],
+                    min_arb_width: int = 0, )-> (List[Order],int, Dict[str,int]):  # add in buy_sell _positions 
         orders: List[Order] = []
         '''Still need to track and return position sizes for each constituent and basket. Update position after each constituent is taken or not
         '''
         if len(arb_opportunities) > 0:
-            arb_opportunities = sorted(arb_opportunities, key=lambda x: x[1], reverse=True) #sort by PnL 
+            arb_opportunities = sorted(arb_opportunities, key=lambda x: x[1], reverse=True)  # sort by PnL 
             for arb in arb_opportunities:
                 can_complete_arb = True 
                 for outstanding_order in arb[0]:
                     order_price = outstanding_order.price 
                     order_quantity = outstanding_order.quantity 
                     order_symbol = outstanding_order.symbol 
-                    if order_symbol in constituents.keys(): # if it is a constituent 
-                        if abs(positions_constituent[order_symbol] + order_quantity) > self.LIMIT[order_symbol]:  # Fixed: was adding symbol instead of quantity
-                            can_complete_arb = False
-                        if order_quantity < 0: # sell order
+                    if order_symbol in constituents.keys():  # if it is a constituent 
+                        # FIX 2: Directional position limit checks
+                        if order_quantity > 0:  # Buy order
+                            if positions_constituent[order_symbol] + order_quantity > self.LIMIT[order_symbol]:
+                                can_complete_arb = False
+                        else:  # Sell order
+                            if positions_constituent[order_symbol] + order_quantity < -self.LIMIT[order_symbol]:
+                                can_complete_arb = False
+                                
+                        if order_quantity < 0:  # sell order
                             if order_symbol in order_depth_constituents and order_price in order_depth_constituents[order_symbol].buy_orders:
-                                if order_depth_constituents[order_symbol].buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                                # FIX 1: Correct volume comparison for sell orders
+                                if abs(order_depth_constituents[order_symbol].buy_orders[order_price]) < abs(order_quantity):  # not enough volume can be sold 
                                     can_complete_arb = False
                             else:
                                 can_complete_arb = False
-                        else: #buy order
+                        else:  # buy order
                             if order_symbol in order_depth_constituents and order_price in order_depth_constituents[order_symbol].sell_orders:
-                                if order_depth_constituents[order_symbol].sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                                # FIX 1: Correct volume comparison for buy orders
+                                if abs(order_depth_constituents[order_symbol].sell_orders[order_price]) < abs(order_quantity):  # not enough volume can be bought  
                                     can_complete_arb = False
                             else:
                                 can_complete_arb = False
-                    else: # It's a basket
-                        if abs(position_basket + order_quantity) > self.LIMIT[basket]:  # Fixed: was adding symbol instead of quantity
-                            can_complete_arb = False
-                        if order_quantity < 0: # sell order
+                    else:  # It's a basket
+                        # FIX 2: Directional position limit checks for basket
+                        if order_quantity > 0:  # Buy order
+                            if position_basket + order_quantity > self.LIMIT[basket]:
+                                can_complete_arb = False
+                        else:  # Sell order
+                            if position_basket + order_quantity < -self.LIMIT[basket]:
+                                can_complete_arb = False
+                                
+                        if order_quantity < 0:  # sell order
                             if order_price in order_depth_basket.buy_orders:
-                                if order_depth_basket.buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
+                                # FIX 1: Correct volume comparison for sell orders
+                                if abs(order_depth_basket.buy_orders[order_price]) < abs(order_quantity):  # not enough volume can be sold 
                                     can_complete_arb = False
                             else:
                                 can_complete_arb = False
-                        else: #buy order
+                        else:  # buy order
                             if order_price in order_depth_basket.sell_orders:
-                                if order_depth_basket.sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
+                                # FIX 1: Correct volume comparison for buy orders
+                                if abs(order_depth_basket.sell_orders[order_price]) < abs(order_quantity):  # not enough volume can be bought  
                                     can_complete_arb = False
                             else:
                                 can_complete_arb = False
                 
-                    if can_complete_arb:  # Process the arb
-                        orders.extend(arb[0])
-                        for taken_order in arb[0]:
-                            order_symbol = taken_order.symbol 
-                            order_price = taken_order.price
-                            order_quantity = taken_order.quantity
-                            if order_symbol in constituents.keys():
-                                positions_constituent[order_symbol] += order_quantity
-                                if order_quantity > 0:  # Buying constituent
-                                    if order_price in order_depth_constituents[order_symbol].sell_orders:
-                                        order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity
-                                else:  # Selling constituent
-                                    if order_price in order_depth_constituents[order_symbol].buy_orders:
-                                        order_depth_constituents[order_symbol].buy_orders[order_price] += order_quantity
-                            else:  # Basket
-                                position_basket += order_quantity
-                                if order_quantity > 0:  # Buying basket
-                                    if order_price in order_depth_basket.sell_orders:
-                                        order_depth_basket.sell_orders[order_price] += order_quantity
-                                else:  # Selling basket
-                                    if order_price in order_depth_basket.buy_orders:
-                                        order_depth_basket.buy_orders[order_price] += order_quantity
+                if can_complete_arb:  # Process the arb
+                    orders.extend(arb[0])
+                    for taken_order in arb[0]:
+                        order_symbol = taken_order.symbol 
+                        order_price = taken_order.price
+                        order_quantity = taken_order.quantity
+                        if order_symbol in constituents.keys():
+                            positions_constituent[order_symbol] += order_quantity
+                            if order_quantity > 0:  # Buying constituent
+                                if order_price in order_depth_constituents[order_symbol].sell_orders:
+                                    # FIX 3: Properly decrease available volume instead of increasing
+                                    # Since sell_orders values are negative and order_quantity is positive
+                                    # Adding them together will decrease the absolute volume
+                                    order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity
+                            else:  # Selling constituent
+                                if order_price in order_depth_constituents[order_symbol].buy_orders:
+                                    # FIX 3: Properly decrease available volume
+                                    # Reduce available buy volume (which is positive) by the absolute value of quantity
+                                    order_depth_constituents[order_symbol].buy_orders[order_price] -= abs(order_quantity)
+                        else:  # Basket
+                            position_basket += order_quantity
+                            if order_quantity > 0:  # Buying basket
+                                if order_price in order_depth_basket.sell_orders:
+                                    # FIX 3: Properly decrease available volume
+                                    # Since sell_orders values are negative and order_quantity is positive
+                                    order_depth_basket.sell_orders[order_price] += order_quantity
+                            else:  # Selling basket
+                                if order_price in order_depth_basket.buy_orders:
+                                    # FIX 3: Properly decrease available volume
+                                    order_depth_basket.buy_orders[order_price] -= abs(order_quantity)
             
-        return orders, position_basket, positions_constituent
-    
+            return orders, position_basket, positions_constituent
+        
     def clear_arb(self,
                   buySellOrderVolume: Dict[(int,int)],
                   order_depth: OrderDepth,
