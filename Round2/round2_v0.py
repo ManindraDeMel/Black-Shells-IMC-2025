@@ -572,28 +572,28 @@ class Trader:
                             else:
                                 can_complete_arb = False
                 
-                if can_complete_arb:  # Process the arb
-                    orders.extend(arb[0])
-                    for taken_order in arb[0]:
-                        order_symbol = taken_order.symbol 
-                        order_price = taken_order.price
-                        order_quantity = taken_order.quantity
-                        if order_symbol in constituents.keys():
-                            positions_constituent[order_symbol] += order_quantity
-                            if order_quantity > 0:  # Buying constituent
-                                if order_price in order_depth_constituents[order_symbol].sell_orders:
-                                    order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity
-                            else:  # Selling constituent
-                                if order_price in order_depth_constituents[order_symbol].buy_orders:
-                                    order_depth_constituents[order_symbol].buy_orders[order_price] += order_quantity
-                        else:  # Basket
-                            position_basket += order_quantity
-                            if order_quantity > 0:  # Buying basket
-                                if order_price in order_depth_basket.sell_orders:
-                                    order_depth_basket.sell_orders[order_price] += order_quantity
-                            else:  # Selling basket
-                                if order_price in order_depth_basket.buy_orders:
-                                    order_depth_basket.buy_orders[order_price] += order_quantity
+                    if can_complete_arb:  # Process the arb
+                        orders.extend(arb[0])
+                        for taken_order in arb[0]:
+                            order_symbol = taken_order.symbol 
+                            order_price = taken_order.price
+                            order_quantity = taken_order.quantity
+                            if order_symbol in constituents.keys():
+                                positions_constituent[order_symbol] += order_quantity
+                                if order_quantity > 0:  # Buying constituent
+                                    if order_price in order_depth_constituents[order_symbol].sell_orders:
+                                        order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity
+                                else:  # Selling constituent
+                                    if order_price in order_depth_constituents[order_symbol].buy_orders:
+                                        order_depth_constituents[order_symbol].buy_orders[order_price] += order_quantity
+                            else:  # Basket
+                                position_basket += order_quantity
+                                if order_quantity > 0:  # Buying basket
+                                    if order_price in order_depth_basket.sell_orders:
+                                        order_depth_basket.sell_orders[order_price] += order_quantity
+                                else:  # Selling basket
+                                    if order_price in order_depth_basket.buy_orders:
+                                        order_depth_basket.buy_orders[order_price] += order_quantity
             
         return orders, position_basket, positions_constituent
 
