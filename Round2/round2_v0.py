@@ -419,7 +419,7 @@ class Trader:
                  positions_constituent: dict[str, int], #use a dictionary?
                  min_arb_width: int = 0,
                  
-                 ) -> List[(List[Order], int)]: #returns a list of all possible arbs with the PnL from those Arbs.
+                 ) -> List[Tuple[List[Order], int]]: #returns a list of all possible arbs with the PnL from those Arbs.
         buy_quantity_basket = self.LIMIT[basket] - position_basket
         sell_quantity_basket = self.LIMIT[basket] + position_basket
         constituents_buy_sell_dict = {product: (self.LIMIT[product] - positions_constituent[product],
@@ -515,7 +515,7 @@ class Trader:
                     arb_opportunities.append((arb_orders, arb_pnl * max_baskets))  # Total PnL for all baskets
             #TO IMPLEMENT OTHER WAY, BUY CONSTITUENTS, SELL BASKETS if sum constituents < basket cost
             
-            return arb_opportunities
+            return arb_opportunities #LATER RETURN THE QUANTITIES OF EACH INGREDIENT WE UPDATE, CAN USE THIS TO UPDATE POSITION LIMITS ETC
     def take_best_arbs(self,
                  constituents: Dict[str, int], #each constituent product and the amount, recipe for making the basket
                  basket: str,
@@ -523,9 +523,11 @@ class Trader:
                  order_depth_constituents: Dict[str, OrderDepth], #keys are the constituent products, values are the  
                  position_basket: int,
                  positions_constituent: Dict[str, int], #use a dictionary?
-                 arb_opportunities: List[(List[Order],int)],
-                 min_arb_width: int = 0,)-> List[Order]: #add in buy_sell _positions 
+                 arb_opportunities: List[Tuple[List[Order],int]],
+                 min_arb_width: int = 0, )-> (List[Order],int, Dict[str,int]): #add in buy_sell _positions 
         orders: List[Order] = []
+        '''Still need to track and return position sizes for each constituent and basket. Update position after each constituent is taken or not
+        '''
         if len(arb_opportunities) > 0:
             arb_opportunities = sorted(arb_opportunities,key=lambda x: x[1],reverse=True) #sort by PnL 
             for arb in arb_opportunities:
@@ -535,22 +537,46 @@ class Trader:
                     order_quantity = outstanding_order.quantity 
                     order_symbol = outstanding_order.symbol 
                     if order_symbol in constituents.keys(): # if it is a constituent 
+                        if abs(positions_constituent[order_symbol] + order_symbol) > self.LIMIT[order_symbol]:
+                                can_complete_arb = False
                         if order_quantity < 0: # sell order
                             if order_depth_constituents[order_symbol].buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
                                 can_complete_arb = False
+                            
                         else: #buy order
                             if order_depth_constituents[order_symbol].sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
                                 can_complete_arb = False
                     else: 
+                        if abs(position_basket + order_symbol) > self.LIMIT[order_symbol]:
+                                can_complete_arb = False
                         if order_quantity < 0: # sell order
                             if order_depth_basket.buy_orders[order_price] < abs(order_quantity): #not enough volume can be sold 
                                 can_complete_arb = False
                         else: #buy order
                             if order_depth_basket.sell_orders[order_price] > -1* abs(order_quantity): #not enough volume can be bought  
                                 can_complete_arb = False
-            if(can_complete_arb):# process the arb
-                orders.extend(arb[0])
-        return orders
+                if(can_complete_arb):# process the arb
+                    orders.extend(arb[0])
+                    for taken_order in arb[0]:
+                        order_symbol = taken_order.symbol 
+                        order_price = taken_order.price
+                        order_quantity = taken_order.quantity
+                        if order_symbol in constituents.keys():
+                            positions_constituent[order_symbol] += order_quantity
+                            if order_quantity > 0:
+                                order_depth_constituents[order_symbol].sell_orders[order_price] += order_quantity 
+                            else:
+                                order_depth_constituents[order_symbol].buy_orders[order_price] += order_quantity
+                            
+                        else:
+                            position_basket += order_quantity
+                            if order_quantity > 0:
+                                order_depth_basket.sell_orders[order_price] += order_quantity 
+                            else:
+                                order_depth_basket.buy_orders[order_price] += order_quantity
+                            
+            
+        return orders, position_basket, positions_constituent
 
     def clear_arb(self,
                   buySellOrderVolume: Dict[(int,int)],
@@ -568,7 +594,7 @@ class Trader:
             traderObject = jsonpickle.decode(state.traderData)
 
         # Initialize the result dict with empty lists for all products
-        result = {}
+        result = {Product.PICNIC_BASKET1: [], Product.PICNIC_BASKET2: [], Product.CROISSANTS: [], Product.DJEMBE: [], Product.JAMS: []}
         if Product.RAINFORST_RESIN in self.params and Product.RAINFORST_RESIN in state.order_depths:
             resin_position = (
                 state.position[Product.RAINFORST_RESIN]
@@ -654,6 +680,53 @@ class Trader:
             )
             result[Product.KELP] = ( kelp_take_orders + kelp_clear_orders + kelp_make_orders)
         result[Product.SQUID_INK] = []
+        #ADD BASKETS + Components
+        if Product.PICNIC_BASKET1 in self.params and Product.PICNIC_BASKET1 in state.order_depths:
+            basket1_position = (
+                state.position[Product.PICNIC_BASKET1] if Product.PICNIC_BASKET1 in state.position else 0 
+            )
+        if Product.PICNIC_BASKET2 in self.params and Product.PICNIC_BASKET2 in state.order_depths:
+            basket2_position = (
+                state.position[Product.PICNIC_BASKET2] if Product.PICNIC_BASKET2 in state.position else 0 
+            )
+        if Product.CROISSANTS in self.params and Product.CROISSANTS in state.order_depths:
+            croissants_position = (
+                state.position[Product.CROISSANTS] if Product.CROISSANTS in state.position else 0 
+            )
+        if Product.DJEMBE in self.params and Product.DJEMBE in state.order_depths:
+            djembe_position = (
+                state.position[Product.DJEMBE] if Product.DJEMBE in state.position else 0 
+            )
+        if Product.JAMS in self.params and Product.JAMS in state.order_depths:
+            jams_position = (
+                state.position[Product.JAMS] if Product.JAMS in state.position else 0 
+            )
+        basket1_constituents_arbs = self.find_arb({Product.CROISSANTS:6,Product.JAMS:3, Product.DJEMBE: 1},
+                                                  Product.PICNIC_BASKET1,
+                                                  state.order_depths[Product.PICNIC_BASKET1],
+                                                  {Product.CROISSANTS:state.order_depths[Product.CROISSANTS], Product.JAMS: state.order_depths[Product.JAMS], Product.DJEMBE: state.order_depths[Product.DJEMBE]},
+                                                  basket1_position,
+                                                  {Product.CROISSANTS:croissants_position,Product.JAMS:jams_position, Product.DJEMBE: djembe_position},
+                                                  0
+                                                  )
+        basket1_constituents_arb_take_orders, basket1_position, constituents_position_after_arb = self.take_best_arbs({Product.CROISSANTS:6,Product.JAMS:3, Product.DJEMBE: 1},
+                                                                   Product.PICNIC_BASKET1,
+                                                                   state.order_depths[Product.PICNIC_BASKET1],
+                                                                   {Product.CROISSANTS:state.order_depths[Product.CROISSANTS], Product.JAMS: state.order_depths[Product.JAMS], Product.DJEMBE: state.order_depths[Product.DJEMBE]},
+                                                                   basket1_position,
+                                                                   {Product.CROISSANTS:croissants_position,Product.JAMS:jams_position, Product.DJEMBE: djembe_position},
+                                                                   basket1_constituents_arbs,
+                                                                   0
+                                                                
+        )
+        #make the orders in basket1_arbs
+        for taken_order in basket1_constituents_arb_take_orders:
+            order_symbol = taken_order.symbol
+            order_price = taken_order.price 
+            order_quantity = taken_order.price
+            result[order_symbol] += Order(order_symbol,order_price,order_quantity)
+
+
         
         # We're not using conversions in this implementation
         conversions = 0
